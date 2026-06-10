@@ -1,3 +1,6 @@
 /__pycache__
 /data
 /.venv
+/QQChat.spec
+/dist
+/build

@@ -6,7 +6,7 @@ import queue
 import time
 from typing import Optional, Dict, List, Any, Callable
 from websockets.sync.client import connect as ws_connect
-from config import WS_URL
+from config import WS_TOKEN, WS_URL
 
 
 class PendingCall:
@@ -16,8 +16,9 @@ class PendingCall:
 
 
 class OneBotClient:
-    def __init__(self, url: str = None):
+    def __init__(self, url: str = None, token: str = None):
         self.url = url or WS_URL
+        self.token = token if token is not None else WS_TOKEN
         self._ws = None
         self._pending: Dict[str, PendingCall] = {}
         self._lock = threading.Lock()
@@ -28,7 +29,8 @@ class OneBotClient:
         self._counter = 0
 
     def connect(self):
-        self._ws = ws_connect(self.url, max_size=2 ** 23)
+        headers = {"Authorization": f"Bearer {self.token}"} if self.token else {}
+        self._ws = ws_connect(self.url, additional_headers=headers, max_size=2 ** 23)
         self.running = True
         self._thread = threading.Thread(target=self._reader, daemon=True)
         self._thread.start()

@@ -34,3 +34,5 @@ class MessageData:
     sender_name: str = ''
     sender_title: str = ''
     sender_role: str = 'member'
+    reply_to: Optional[int] = None
+    reply_preview: Optional[str] = None
