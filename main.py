@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """QQ Chat TUI --- Textual-based QQ chat client using NapCat backend."""
 
-from tui import QQChatApp
+from ui import QQChatApp
 
 
 def main():
