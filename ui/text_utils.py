@@ -107,6 +107,8 @@ def extract_text(
             parts.append("[图片]")
         elif msg_type == "video":
             parts.append("[视频]")
+        elif msg_type == "forward":
+            parts.append("[转发消息]")
         elif msg_type in ("face", "mface", "sface"):
             parts.append("[表情]")
         elif msg_type == "reply":

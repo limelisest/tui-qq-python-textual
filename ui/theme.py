@@ -26,6 +26,12 @@ CLIPBOARD_TIMEOUT = 1.0
 #: Sidebar auto-hides below this pixel width.
 SIDEBAR_AUTO_HIDE_PIXELS = 700
 
+#: Sidebar auto-hide threshold when all four split panes are visible.
+SIDEBAR_AUTO_HIDE_FOUR_PANE_PIXELS = 1000
+
 #: Sidebar auto-hides below this terminal column count (fallback when pixel
 #: width is unavailable, e.g. on some Windows consoles).
 SIDEBAR_AUTO_HIDE_COLUMNS = 88
+
+#: Approximate terminal-column equivalent of the four-pane pixel threshold.
+SIDEBAR_AUTO_HIDE_FOUR_PANE_COLUMNS = 126
