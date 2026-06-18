@@ -1,9 +1,8 @@
 """Single-screen Textual frontend for QQ chats.
 
-``QQChatApp`` owns the Textual widgets and the app state, and delegates the
-pure logic to :mod:`ui.logic` and the network/parsing to :mod:`ui.services`.
-This keeps the file focused on "state machine + widget glue" so new features
-land in focused modules instead of a 1600-line monolith.
+``QQChatApp`` owns the Textual lifecycle and event bindings, and delegates
+focused UI coordination to controllers. Pure logic lives in :mod:`ui.logic`;
+network/parsing work stays in :mod:`ui.services`.
 """
 
 from __future__ import annotations
@@ -12,7 +11,7 @@ import json
 import os
 import threading
 import time
-from typing import Callable, Optional
+from typing import Optional
 
 from rich.text import Text
 from textual import events, on
@@ -20,30 +19,25 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
 from textual.css.query import NoMatches
-from textual.widgets import Button, Input, ListItem, ListView, Static
+from textual.widgets import Button, Input, ListView, Static
 
 import config
 from models import ChatInfo, MessageData
 from onebot import OneBotClient
 from storage import Storage
-from ui.clipboard import get_system_clipboard, set_system_clipboard
 from ui.controllers.chat_list import ChatListController
 from ui.controllers.messages import MessageController
+from ui.controllers.mouse import MouseController
+from ui.controllers.navigation import NavigationController
 from ui.controllers.panes import PaneController
-from ui.logic import chat_logic, message_logic
-
-from ui.navigation import NavigationState, compute_pane_index_in_direction
+from ui.controllers.realtime import RealtimeController
+from ui.controllers.sidebar import SidebarController
+from ui.logic import chat_logic
 from ui.services import chat_service, message_service
-from ui.sidebar import SidebarState, has_empty_pane, is_sidebar_narrow, widget_inside
-from ui.state import (
-    ChatPaneState,
-    same_chat,
-)
+from ui.sidebar import is_sidebar_narrow
+from ui.state import AppState, ChatPaneState
 from ui.styles import APP_CSS
-from ui.theme import (
-    LEFT_MOUSE_BUTTON,
-    RIGHT_MOUSE_BUTTON,
-)
+
 from ui.text_utils import ellipsize
 from ui.widgets.chat_pane import build_pane_container
 
@@ -54,6 +48,26 @@ class QQChatApp(App):
     TITLE = "TUI-QQ"
     SUB_TITLE = "NapCat / OneBot v11"
     CSS = APP_CSS
+
+    _STATE_COMPAT_FIELDS = {
+        "_chats": "chats",
+        "_filtered_chats": "filtered_chats",
+        "_rendered_chats": "rendered_chats",
+        "_search_cache": "search_cache",
+        "_connected": "connected",
+        "_toast_token": "toast_token",
+        "_storage_dirty": "storage_dirty",
+        "_panes": "panes",
+        "_active_pane_uid": "active_pane_uid",
+        "_input_owner_pane_uid": "input_owner_pane_uid",
+        "_navigation": "navigation",
+        "_next_pane_uid": "next_pane_uid",
+        "_split_layout_horizontal": "split_layout_horizontal",
+        "_pending_pane_focus_uid": "pending_pane_focus_uid",
+        "_friend_remarks": "friend_remarks",
+        "_right_click_selected_text": "right_click_selected_text",
+        "_sidebar_state": "sidebar_state",
+    }
 
     BINDINGS = [
         Binding("ctrl+r", "refresh_chats", "刷新"),
@@ -88,26 +102,27 @@ class QQChatApp(App):
         self.ob = OneBotClient()
 
         self._state_lock = threading.Lock()
-        self._chats: list[ChatInfo] = []
-        self._filtered_chats: list[ChatInfo] = []
-        self._rendered_chats: list[Optional[ChatInfo]] = []
-        self._search_cache: dict[tuple[str, int], str] = {}
-        self._connected = False
-        self._toast_token = 0
-        self._storage_dirty = False
-        self._panes: list[ChatPaneState] = [ChatPaneState(uid=1)]
-        self._active_pane_uid = 1
-        self._input_owner_pane_uid: Optional[int] = None
-        self._navigation = NavigationState()
-        self._next_pane_uid = 2
-        self._split_layout_horizontal = False
-        self._pending_pane_focus_uid: Optional[int] = None
-        self._friend_remarks: dict[int, str] = {}
-        self._right_click_selected_text = ""
-        self._sidebar_state = SidebarState()
+        self.state = AppState()
         self._chat_list_ctrl = ChatListController(self)
         self._msg_ctrl = MessageController(self)
+        self._mouse_ctrl = MouseController(self)
         self._pane_ctrl = PaneController(self)
+        self._nav_ctrl = NavigationController(self)
+        self._sidebar_ctrl = SidebarController(self)
+        self._realtime_ctrl = RealtimeController(self)
+
+    def __getattr__(self, name: str):
+        state_field = self._STATE_COMPAT_FIELDS.get(name)
+        if state_field is not None and "state" in self.__dict__:
+            return getattr(self.state, state_field)
+        raise AttributeError(name)
+
+    def __setattr__(self, name: str, value) -> None:
+        state_field = self._STATE_COMPAT_FIELDS.get(name)
+        if state_field is not None and "state" in self.__dict__:
+            setattr(self.state, state_field, value)
+            return
+        super().__setattr__(name, value)
 
     @property
     def _selected_chat(self) -> Optional[ChatInfo]:
@@ -203,180 +218,32 @@ class QQChatApp(App):
         self._pane_ctrl.hide_all_message_inputs()
 
     def _enter_top_layer(self) -> None:
-        self._navigation.layer = "top"
-        self._hide_all_message_inputs()
-        self._chat_list_ctrl.set_search_nav_selected(False)
-        self._refresh_pane_active_classes()
+        self._nav_ctrl.enter_top_layer()
 
     def _enter_chat_list_layer(self) -> None:
-        self._navigation.layer = "chat_list"
-        self._hide_all_message_inputs()
-        self._navigation.chat_list_on_search = False
-        self._chat_list_ctrl.set_search_nav_selected(False)
-        try:
-            self.query_one("#sidebar", Vertical).remove_class("top_selected")
-        except NoMatches:
-            pass
-        self._refresh_pane_active_classes()
-        self._chat_list_ctrl.schedule_chat_list_selection_sync(scroll=True)
-        try:
-            self.query_one("#chat_list", ListView).focus()
-        except NoMatches:
-            pass
+        self._nav_ctrl.enter_chat_list_layer()
 
     def _enter_search_layer(self) -> None:
-        self._navigation.layer = "search"
-        self._hide_all_message_inputs()
-        self._navigation.chat_list_on_search = True
-        self._chat_list_ctrl.set_search_nav_selected(False)
-        try:
-            self.query_one("#sidebar", Vertical).remove_class("top_selected")
-        except NoMatches:
-            pass
-        self._refresh_pane_active_classes()
-        self.query_one("#search", Input).focus()
+        self._nav_ctrl.enter_search_layer()
 
-    def _enter_pane_layer(self, pane: Optional[ChatPaneState] = None) -> None:
-        pane = pane or self._active_pane()
-        self._navigation.layer = "pane"
-        self._navigation.top_target_pane_uid = pane.uid
-        try:
-            self.query_one("#sidebar", Vertical).remove_class("top_selected")
-        except NoMatches:
-            pass
-        self._refresh_pane_active_classes()
-        self._activate_pane(pane, focus_input=pane.selected_chat is not None)
-
-    def _enter_pane_layer_after_refresh(self, pane: ChatPaneState) -> None:
-        self._pending_pane_focus_uid = pane.uid
-
-        def enter() -> None:
-            target = self._pane_by_uid(pane.uid)
-            if target is not None:
-                self._enter_pane_layer(target)
-
-        self.call_after_refresh(enter)
-        self.set_timer(0.02, enter)
-        self.set_timer(0.08, enter)
-        self.set_timer(
-            0.16, lambda uid=pane.uid: self._clear_pending_pane_focus(uid)
-        )
-
-    def _clear_pending_pane_focus(self, pane_uid: int) -> None:
-        if self._pending_pane_focus_uid == pane_uid:
-            self._pending_pane_focus_uid = None
-
-    def _top_target_index(self) -> int:
-        if self._navigation.top_target_pane_uid is None:
-            return 0
-        for index, pane in enumerate(self._panes, start=1):
-            if pane.uid == self._navigation.top_target_pane_uid:
-                return index
-        return 0
+    def _enter_pane_layer(
+        self, pane: Optional[ChatPaneState] = None, focus_input: bool = False
+    ) -> None:
+        self._nav_ctrl.enter_pane_layer(pane, focus_input)
 
     def _set_top_target_index(self, index: int) -> None:
-        count = len(self._panes) + 1
-        index %= count
-        self._navigation.layer = "top"
-        self._hide_all_message_inputs()
-        self._chat_list_ctrl.set_search_nav_selected(False)
-        try:
-            sidebar = self.query_one("#sidebar", Vertical)
-        except NoMatches:
-            sidebar = None
-        if index == 0:
-            self._navigation.top_target_pane_uid = None
-            if sidebar is not None:
-                sidebar.add_class("top_selected")
-            self._refresh_pane_active_classes()
-            return
-        if sidebar is not None:
-            sidebar.remove_class("top_selected")
-        pane = self._panes[index - 1]
-        self._navigation.top_target_pane_uid = pane.uid
-        self._active_pane_uid = pane.uid
-        self._refresh_pane_active_classes()
-        self._chat_list_ctrl.schedule_chat_list_selection_sync(scroll=True)
-
-    def _move_pane_selection_in_direction(self, direction: str) -> None:
-        index = compute_pane_index_in_direction(
-            self._panes,
-            self._navigation.top_target_pane_uid or self._active_pane_uid,
-            self._split_layout_horizontal,
-            direction,
-        )
-        if index is not None:
-            self._set_top_target_index(index)
+        self._nav_ctrl.set_top_target_index(index)
 
     def _focus_chat_list_area(self) -> None:
-        if self._sidebar_state.hidden_by is not None:
-            self._sidebar_state.tab_restore_reason = self._sidebar_state.hidden_by
-            self._sidebar_state.tab_restore_auto_paused = self._sidebar_state.auto_paused
-        else:
-            self._sidebar_state.tab_restore_reason = None
-        self._sidebar_state.auto_paused = False
-        self._set_sidebar_visible(True)
-        self._set_top_target_index(0)
-
-        def focus_list() -> None:
-            try:
-                self.query_one("#chat_list", ListView).focus()
-            except NoMatches:
-                pass
-
-        focus_list()
-        self.call_after_refresh(focus_list)
-
-    def _focus_pane_selection_area(self) -> None:
-        pane = self._pane_by_uid(
-            self._navigation.top_target_pane_uid or self._active_pane_uid
-        )
-        if pane is None:
-            pane = self._active_pane()
-        self._set_top_target_index(self._panes.index(pane) + 1)
-        self.screen.set_focus(None)
-        if self._sidebar_state.tab_restore_reason is not None:
-            reason = self._sidebar_state.tab_restore_reason
-            auto_paused = self._sidebar_state.tab_restore_auto_paused
-            self._sidebar_state.tab_restore_reason = None
-            self._sidebar_state.tab_restore_auto_paused = False
-            self._sidebar_state.auto_paused = auto_paused
-            self._set_sidebar_visible(False, reason)
+        self._nav_ctrl.focus_chat_list_area()
 
     def _focused_input(self) -> Optional[Input]:
-        focused = self.screen.focused
-        return focused if isinstance(focused, Input) else None
-
-    def _cursor_target_input(self) -> Optional[Input]:
-        focused = self._focused_input()
-        if focused is not None:
-            return focused
-        pane = self._pane_by_uid(self._input_owner_pane_uid or 0)
-        if pane is None or not self._msg_ctrl.pane_input_visible(pane):
-            return None
-        return self._msg_ctrl.message_input_or_none(pane)
+        return self._nav_ctrl.focused_input()
 
     def _activate_pane(
         self, pane: Optional[ChatPaneState], focus_input: bool = False
     ) -> None:
-        if pane is None:
-            return
-        changed = pane.uid != self._active_pane_uid
-        if changed:
-            self._active_pane_uid = pane.uid
-            self._navigation.top_target_pane_uid = pane.uid
-            self._refresh_pane_active_classes()
-            self._set_app_title_text("")
-            self._chat_list_ctrl.schedule_chat_list_selection_sync(scroll=True)
-            self._apply_sidebar_auto_visibility()
-        self._set_input_owner_pane(pane)
-        if focus_input and pane.selected_chat is not None:
-            msg_input = self._msg_ctrl.message_input_or_none(pane)
-            if msg_input is not None and not msg_input.disabled:
-                msg_input.focus()
-
-    def _refresh_pane_active_classes(self) -> None:
-        self._pane_ctrl.refresh_pane_active_classes()
+        self._nav_ctrl.activate_pane(pane, focus_input)
 
     def _update_pane_titles(self) -> None:
         self._pane_ctrl.update_pane_titles()
@@ -434,8 +301,8 @@ class QQChatApp(App):
             with Vertical(id="main"):
                 with Container(id="pane_grid", classes="pane_count_1"):
                     yield build_pane_container(
-                        self._panes[0], self._navigation.layer, self._active_pane_uid,
-                        self._navigation.top_target_pane_uid, self._msg_ctrl.pane_input_visible(self._panes[0])
+                        self.state.panes[0], self.state.navigation.layer, self.state.active_pane_uid,
+                        self.state.navigation.top_target_pane_uid, self._msg_ctrl.pane_input_visible(self.state.panes[0])
                     )
                 with Horizontal(id="toast_row"):
                     yield Static("", id="toast_spacer")
@@ -451,7 +318,7 @@ class QQChatApp(App):
         self._update_pane_titles()
         self._set_top_target_index(0)
         self._apply_sidebar_auto_visibility()
-        self.set_interval(0.1, self._drain_events)
+        self.set_interval(0.1, self._realtime_ctrl.drain_events)
         self.set_interval(0.1, self._msg_ctrl.check_scroll)
         self.set_interval(2.0, self._flush_storage_if_dirty)
         self._run_thread(self._connect_and_load)
@@ -491,12 +358,12 @@ class QQChatApp(App):
             self.ob.connect()
             info = self.ob.get_login_info()
             self.ob.self_id = info.get("user_id")
-            self._connected = True
+            self.state.connected = True
             self.call_from_thread(
                 self._show_toast, "已连接", str(self.ob.self_id or "")
             )
         except Exception:
-            self._connected = False
+            self.state.connected = False
         self._load_chats_worker()
 
     def _load_chats_worker(self) -> None:
@@ -505,9 +372,9 @@ class QQChatApp(App):
             self.call_from_thread(self._chat_list_ctrl.show_empty_chats, error)
             return
         with self._state_lock:
-            self._chats = chats
-            self._friend_remarks.update(remarks)
-            self._search_cache = cache
+            self.state.chats = chats
+            self.state.friend_remarks.update(remarks)
+            self.state.search_cache = cache
         self.call_from_thread(self._chat_list_ctrl.render_chat_list)
 
     def _load_messages_worker(self, pane_uid: int, chat: ChatInfo) -> None:
@@ -544,16 +411,16 @@ class QQChatApp(App):
     # ------------------------------------------------------------------ #
 
     def _mark_storage_dirty(self) -> None:
-        self._storage_dirty = True
+        self.state.storage_dirty = True
 
     def _flush_storage_if_dirty(self) -> None:
-        if not self._storage_dirty:
+        if not self.state.storage_dirty:
             return
-        self._storage_dirty = False
+        self.state.storage_dirty = False
         try:
             self.storage.save()
         except OSError as exc:
-            self._storage_dirty = True
+            self.state.storage_dirty = True
             self._show_toast("缓存保存失败", str(exc))
 
     # ------------------------------------------------------------------ #
@@ -561,8 +428,8 @@ class QQChatApp(App):
     # ------------------------------------------------------------------ #
 
     def _show_toast(self, title: str, body: str = "") -> None:
-        self._toast_token += 1
-        token = self._toast_token
+        self.state.toast_token += 1
+        token = self.state.toast_token
         title = ellipsize(title, 34)
         body = ellipsize(body, 34) if body else ""
         text = title if not body else f"{title}\n{body}"
@@ -574,7 +441,7 @@ class QQChatApp(App):
         self.set_timer(4, lambda: self._hide_toast(token))
 
     def _hide_toast(self, token: int) -> None:
-        if token != self._toast_token:
+        if token != self.state.toast_token:
             return
         row = self.query_one("#toast_row", Horizontal)
         self.query_one("#toast", Static).update("")
@@ -582,100 +449,26 @@ class QQChatApp(App):
         row.refresh(layout=True)
 
     # ------------------------------------------------------------------ #
-    # Sidebar visibility
+    # Sidebar visibility (delegated to SidebarController)
     # ------------------------------------------------------------------ #
-
-    def _focus_after_sidebar_hidden(self, sidebar: Vertical, button: Button) -> None:
-        focused = self.focused
-        if focused is None or not widget_inside(focused, sidebar):
-            return
-        pane = self._active_pane()
-        if pane.selected_chat is not None:
-            msg_input = self._msg_ctrl.message_input_or_none(pane)
-            if msg_input is not None and not msg_input.disabled:
-                msg_input.focus()
-                return
-        button.focus()
 
     def _set_sidebar_visible(self, visible: bool, reason: Optional[str] = None) -> None:
-        try:
-            sidebar = self.query_one("#sidebar", Vertical)
-            button = self.query_one("#sidebar_toggle_btn", Button)
-        except NoMatches:
-            return
-
-        sidebar.display = visible
-        self._sidebar_state.hidden_by = None if visible else reason
-        button.label = "<" if visible else ">"
-        button.tooltip = "隐藏群组列表" if visible else "显示群组列表"
-        if not visible:
-            self._focus_after_sidebar_hidden(sidebar, button)
+        self._sidebar_ctrl.set_sidebar_visible(visible, reason)
 
     def _apply_sidebar_auto_visibility(self, size=None, pixel_size=None) -> None:
-        if size is None and pixel_size is None:
-            size = self.size
-        narrow = is_sidebar_narrow(
-            size,
-            pixel_size,
-            len(self._panes),
-            self._split_layout_horizontal,
-        )
-        if narrow:
-            self._sidebar_state.auto_paused = False
-            if has_empty_pane(self._panes):
-                self._set_sidebar_visible(True)
-            else:
-                self._set_sidebar_visible(False, "auto")
-            return
-
-        if self._sidebar_state.auto_paused:
-            return
-        if self._sidebar_state.hidden_by == "auto":
-            self._set_sidebar_visible(True)
-
-    def _show_sidebar_for_narrow_navigation(self) -> None:
-        if not is_sidebar_narrow(
-            self.size,
-            None,
-            len(self._panes),
-            self._split_layout_horizontal,
-        ):
-            return
-        self._sidebar_state.auto_paused = False
-        self._set_sidebar_visible(True)
-
-    def _hide_sidebar_after_narrow_chat_selection(self) -> None:
-        if not is_sidebar_narrow(
-            self.size,
-            None,
-            len(self._panes),
-            self._split_layout_horizontal,
-        ):
-            return
-        self._sidebar_state.auto_paused = False
-        if has_empty_pane(self._panes):
-            self._set_sidebar_visible(True)
-        else:
-            self._set_sidebar_visible(False, "auto")
+        self._sidebar_ctrl.apply_sidebar_auto_visibility(size, pixel_size)
 
     # ------------------------------------------------------------------ #
-    # Mouse handling (right-click copy / paste / pin)
+    # Mouse handling (delegated to MouseController)
     # ------------------------------------------------------------------ #
 
     @on(events.MouseDown)
     def _on_app_mouse_down(self, event: events.MouseDown) -> None:
-        pane = self._pane_from_mouse_event(event)
-        if pane is not None:
-            self._navigation.layer = "pane"
-            self._activate_pane(pane, focus_input=pane.selected_chat is not None)
-        else:
-            self._navigation.layer = "top"
-            self._hide_all_message_inputs()
-        if event.button == RIGHT_MOUSE_BUTTON:
-            if self._mouse_event_in_chat_list(event):
-                self._right_click_selected_text = ""
-                return
-            self._right_click_selected_text = self.screen.get_selected_text() or ""
+        self._mouse_ctrl.handle_mouse_down(event)
+
+    @on(events.MouseUp)
+    def _on_app_mouse_up(self, event: events.MouseUp) -> None:
+        self._mouse_ctrl.handle_mouse_up(event)
 
     @on(events.Focus)
     def _on_app_focus(self, _: events.Focus) -> None:
@@ -700,160 +493,19 @@ class QQChatApp(App):
         if self._focused_input() is not None:
             return
         pane: Optional[ChatPaneState] = None
-        if self._navigation.layer == "pane":
+        if self.state.navigation.layer == "pane":
             pane = self._active_pane()
-        elif self._navigation.layer == "top" and self._navigation.top_target_pane_uid is not None:
-            pane = self._pane_by_uid(self._navigation.top_target_pane_uid)
+        elif self.state.navigation.layer == "top" and self.state.navigation.top_target_pane_uid is not None:
+            pane = self._pane_by_uid(self.state.navigation.top_target_pane_uid)
         if pane is None or pane.selected_chat is None:
             return
         event.prevent_default()
         event.stop()
-        self._enter_pane_layer(pane)
+        self._enter_pane_layer(pane, focus_input=True)
         self._msg_ctrl.start_message_input(pane, event.character)
 
     def _sync_message_input_focus(self) -> None:
-        if self._pending_pane_focus_uid is not None:
-            target = self._pane_by_uid(self._pending_pane_focus_uid)
-            if target is not None and target.selected_chat is not None:
-                self.call_after_refresh(
-                    lambda target=target: self._enter_pane_layer(target)
-                )
-                return
-        focused = self.screen.focused
-        if focused is None:
-            self._hide_all_message_inputs()
-            self._refresh_pane_active_classes()
-            return
-        if self._chat_list_ctrl.search_has_focus():
-            self._navigation.layer = "search"
-            self._hide_all_message_inputs()
-            self._refresh_pane_active_classes()
-            return
-        if isinstance(focused, ListView) and focused.id == "chat_list":
-            self._navigation.layer = "chat_list"
-            self._hide_all_message_inputs()
-            self._refresh_pane_active_classes()
-            return
-        pane = self._pane_from_widget(focused)
-        if pane is None:
-            self._hide_all_message_inputs()
-            self._refresh_pane_active_classes()
-            return
-        self._navigation.layer = "pane"
-        self._set_input_owner_pane(pane, scroll_if_auto=True)
-
-    @on(events.MouseUp)
-    def _on_app_mouse_up(self, event: events.MouseUp) -> None:
-        if event.button == LEFT_MOUSE_BUTTON and self._mouse_event_in_chat_list(event):
-            chat = self._chat_from_mouse_event(event)
-            if chat is not None:
-                event.stop()
-                self._open_chat_from_list_selection(chat, focus_pane=True)
-            return
-        if event.button != RIGHT_MOUSE_BUTTON:
-            return
-        event.stop()
-        if self._mouse_event_in_chat_list(event):
-            chat = self._chat_from_mouse_event(event)
-            if chat is not None:
-                self._toggle_chat_pin(chat)
-            self._right_click_selected_text = ""
-            return
-        selected_text = (
-            self._right_click_selected_text or self.screen.get_selected_text() or ""
-        )
-        self._right_click_selected_text = ""
-        if selected_text:
-            self._copy_text_to_clipboard(selected_text)
-            self.screen.clear_selection()
-            return
-        self._paste_clipboard_to_input()
-
-    def _mouse_event_in_chat_list(self, event: events.MouseEvent) -> bool:
-        try:
-            widget, _ = self.screen.get_widget_at(event.screen_x, event.screen_y)
-            list_view = self.query_one("#chat_list", ListView)
-        except Exception:
-            return False
-
-        node = widget
-        while node is not None:
-            if node is list_view:
-                return True
-            node = getattr(node, "parent", None)
-        return False
-
-    def _chat_from_mouse_event(self, event: events.MouseEvent) -> Optional[ChatInfo]:
-        try:
-            widget, _ = self.screen.get_widget_at(event.screen_x, event.screen_y)
-            list_view = self.query_one("#chat_list", ListView)
-        except Exception:
-            return None
-
-        item = None
-        node = widget
-        while node is not None:
-            if isinstance(node, ListItem):
-                item = node
-                break
-            node = getattr(node, "parent", None)
-        if item is None:
-            return None
-
-        try:
-            index = list(list_view.children).index(item)
-        except ValueError:
-            return None
-
-        with self._state_lock:
-            rendered = list(self._rendered_chats)
-        if index < 0 or index >= len(rendered):
-            return None
-        return rendered[index]
-
-    def _toggle_chat_pin(self, chat: ChatInfo) -> None:
-        pinned = self.storage.toggle_chat_pinned(
-            chat.chat_type, chat.chat_id, save=False
-        )
-        self._mark_storage_dirty()
-        self._chat_list_ctrl.render_chat_list()
-        self._chat_list_ctrl.schedule_chat_list_selection_sync(scroll=True)
-        self._show_toast("已置顶" if pinned else "已取消置顶", chat.name)
-
-    def _copy_text_to_clipboard(self, text: str) -> None:
-        self.copy_to_clipboard(text)
-        set_system_clipboard(text)
-
-    def _paste_clipboard_to_input(self) -> None:
-        text = get_system_clipboard() or self.clipboard
-        if not text:
-            self._show_toast("剪贴板为空")
-            return
-        target = self._paste_target_input()
-        if target is None:
-            self._show_toast("没有可粘贴的输入框")
-            return
-        line = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")[0]
-        if not line:
-            return
-        target.focus()
-        selection = target.selection
-        if selection.is_empty:
-            target.insert_text_at_cursor(line)
-        else:
-            target.replace(line, *selection)
-
-    def _paste_target_input(self) -> Optional[Input]:
-        focused = self.screen.focused
-        if isinstance(focused, Input) and not focused.disabled:
-            return focused
-        pane = self._active_pane()
-        message_input = self._msg_ctrl.message_input_or_none(pane)
-        if message_input is not None and not message_input.disabled:
-            if self._msg_ctrl.pane_input_visible(pane):
-                return message_input
-        search = self.query_one("#search", Input)
-        return search if not search.disabled else None
+        self._nav_ctrl.sync_message_input_focus()
 
     # ------------------------------------------------------------------ #
     # Button handlers
@@ -861,23 +513,23 @@ class QQChatApp(App):
 
     @on(Button.Pressed, "#sidebar_toggle_btn")
     def _on_sidebar_toggle(self) -> None:
-        if self._sidebar_state.hidden_by is None:
+        if self.state.sidebar_state.hidden_by is None:
             narrow = is_sidebar_narrow(
                 self.size,
                 None,
-                len(self._panes),
-                self._split_layout_horizontal,
+                len(self.state.panes),
+                self.state.split_layout_horizontal,
             )
-            self._sidebar_state.auto_paused = not narrow
+            self.state.sidebar_state.auto_paused = not narrow
             reason = (
                 "manual"
-                if len(self._panes) > 1
+                if len(self.state.panes) > 1
                 else ("auto" if narrow else "manual")
             )
             self._set_sidebar_visible(False, reason)
             return
 
-        self._sidebar_state.auto_paused = False
+        self.state.sidebar_state.auto_paused = False
         self._set_sidebar_visible(True)
 
     @on(Button.Pressed, "#header_menu_btn")
@@ -942,31 +594,13 @@ class QQChatApp(App):
     def _open_chat_from_list_selection(
         self, chat: ChatInfo, focus_pane: bool = True
     ) -> None:
-        pane = self._active_pane()
-        if not same_chat(chat, pane.selected_chat):
-            self._open_chat(chat, pane)
-        self._chat_list_ctrl.clear_search_text()
-        self._hide_sidebar_after_narrow_chat_selection()
-        if focus_pane:
-            self._enter_pane_layer_after_refresh(pane)
+        self._nav_ctrl.open_chat_from_list_selection(chat, focus_pane)
 
     def _open_selected_search_chat(self) -> None:
-        chat = self._chat_list_ctrl.selected_search_chat()
-        if chat is None:
-            return
-        self._open_chat_from_list_selection(chat, focus_pane=True)
+        self._nav_ctrl.open_selected_search_chat()
 
     def _close_search_mode(self) -> None:
-        pane = self._active_pane()
-        self._cancel_preview_timer(pane)
-        pane.preview_chat = None
-        search = self.query_one("#search", Input)
-        if search.value:
-            search.clear()
-            self._chat_list_ctrl.render_chat_list()
-        else:
-            self._chat_list_ctrl.schedule_chat_list_selection_sync(scroll=True)
-        self._enter_chat_list_layer()
+        self._nav_ctrl.close_search_mode()
 
     @on(Input.Changed, "#search")
     def _on_search_changed(self, _: Input.Changed) -> None:
@@ -980,7 +614,7 @@ class QQChatApp(App):
         if pane is None:
             return
         if event.input.value:
-            self._input_owner_pane_uid = pane.uid
+            self.state.input_owner_pane_uid = pane.uid
         self._msg_ctrl.refresh_message_input_visibility(pane)
 
     @on(Input.Submitted, "#search")
@@ -995,14 +629,14 @@ class QQChatApp(App):
             if (
                 index is None
                 or index < 0
-                or index >= len(self._rendered_chats)
+                or index >= len(self.state.rendered_chats)
             ):
                 return
-            chat = self._rendered_chats[index]
+            chat = self.state.rendered_chats[index]
             if chat is None:
                 return
         event.stop()
-        self._open_chat_from_list_selection(chat, focus_pane=True)
+        self._nav_ctrl.open_chat_from_list_selection(chat, focus_pane=True)
 
     # ------------------------------------------------------------------ #
     # Opening / loading a chat
@@ -1015,6 +649,7 @@ class QQChatApp(App):
         pane.selected_chat = chat
         self._activate_pane(pane)
         pane.reply_index = -1
+        pane.message_action_index = 0
         pane.messages = []
         pane.message_line_spans = []
         pane.auto_scroll = True
@@ -1035,71 +670,13 @@ class QQChatApp(App):
 
     def _touch_chat(self, chat_type: str, chat_id: int, timestamp: "int | float") -> None:
         with self._state_lock:
-            for chat in self._chats:
+            for chat in self.state.chats:
                 if chat.chat_type == chat_type and chat.chat_id == chat_id:
                     chat.last_time = float(timestamp or time.time())
                     break
-            self._chats.sort(
+            self.state.chats.sort(
                 key=lambda c: chat_logic.chat_sort_key(c, self.storage)
             )
-
-    # ------------------------------------------------------------------ #
-    # Real-time event drain
-    # ------------------------------------------------------------------ #
-
-    def _drain_events(self) -> None:
-        while True:
-            try:
-                event = self.ob.event_queue.get_nowait()
-            except Exception:
-                return
-            self._handle_event(event)
-
-    def _handle_event(self, event: dict) -> None:
-        if event.get("post_type") != "message":
-            return
-        chat_type = "group" if event.get("message_type") == "group" else "private"
-        chat_id = (
-            event.get("group_id") if chat_type == "group" else event.get("user_id")
-        )
-        try:
-            chat_id = int(chat_id or 0)
-        except (TypeError, ValueError):
-            return
-        at_resolver = self._msg_ctrl._at_resolver(chat_type, chat_id)
-        try:
-            message = message_logic.message_from_event(event, at_resolver)
-        except Exception:
-            # A single malformed event must not wedge the drain loop.
-            return
-        if not message.chat_id:
-            return
-        self.storage.add_message(message.chat_type, message.chat_id, message)
-        self.storage.update_last_activity(message.chat_type, message.chat_id)
-        self._mark_storage_dirty()
-        self._touch_chat(message.chat_type, message.chat_id, message.time)
-
-        updated = False
-        for pane in list(self._panes):
-            chat = pane.selected_chat
-            if not (
-                chat
-                and chat.chat_type == message.chat_type
-                and chat.chat_id == message.chat_id
-            ):
-                continue
-            updated = True
-            pane.messages.append(message)
-            log = self._msg_ctrl.message_log_or_none(pane)
-            if log is None:
-                continue
-            line_span = self._msg_ctrl.write_message(log, message, pane)
-            pane.message_line_spans.append(line_span)
-            if pane.auto_scroll:
-                log.scroll_end_when_ready()
-        self._chat_list_ctrl.refresh_chat_list_item(message.chat_type, message.chat_id)
-        if updated:
-            self._msg_ctrl.update_reply_info(self._active_pane())
 
     # ------------------------------------------------------------------ #
     # Sending messages
@@ -1110,230 +687,50 @@ class QQChatApp(App):
         self._msg_ctrl.submit_message_input(event.input)
 
     # ------------------------------------------------------------------ #
-    # Actions (bound keys)
+    # Actions (bound keys) - thin proxies to NavigationController
     # ------------------------------------------------------------------ #
 
     def action_refresh_chats(self) -> None:
-        self._show_toast("正在刷新会话...")
-        self._run_thread(self._load_chats_worker)
+        self._nav_ctrl.action_refresh_chats()
 
     def action_add_pane(self) -> None:
-        self._add_pane()
+        self._nav_ctrl.action_add_pane()
 
     def action_close_current_pane(self) -> None:
-        self._close_pane(self._active_pane())
+        self._nav_ctrl.action_close_current_pane()
 
     def action_toggle_split_layout(self) -> None:
-        self._toggle_split_layout()
-
-    def _navigate_chat(self, direction: int) -> None:
-        pane = self._active_pane()
-        with self._state_lock:
-            chats = list(self._filtered_chats)
-        base = pane.preview_chat or pane.selected_chat
-        index = chat_logic.navigate_index(chats, base, direction)
-        if index is None:
-            return
-        chat = chats[index]
-        if pane.selected_chat is not None and same_chat(chat, pane.selected_chat):
-            pane.preview_chat = None
-        else:
-            pane.preview_chat = chat
-        with self._state_lock:
-            rendered = list(self._rendered_chats)
-
-        target_index = chat_logic.rendered_chat_index(rendered, chat)
-        if target_index is None:
-            self._chat_list_ctrl.render_chat_list()
-            self._chat_list_ctrl.schedule_chat_list_selection_sync(scroll=True)
-        else:
-            self._chat_list_ctrl.schedule_chat_list_selection_sync(scroll=True)
-
-        # Reset the deferred-commit timer.
-        self._cancel_preview_timer(pane)
-        if pane.preview_chat is not None:
-            token = pane.preview_token
-            self.set_timer(
-                1.0,
-                lambda uid=pane.uid, token=token: self._commit_preview_if_current(
-                    uid, token
-                ),
-            )
-
-    def _cancel_preview_timer(self, pane: Optional[ChatPaneState] = None) -> None:
-        pane = pane or self._active_pane()
-        pane.preview_token += 1
-
-    def _commit_preview_if_current(self, pane_uid: int, token: int) -> None:
-        pane = self._pane_by_uid(pane_uid)
-        if pane is not None and token == pane.preview_token:
-            self._commit_preview(pane)
-
-    def _commit_preview(self, pane: Optional[ChatPaneState] = None) -> None:
-        pane = pane or self._active_pane()
-        self._cancel_preview_timer(pane)
-        chat = pane.preview_chat
-        if chat is None:
-            return
-        pane.preview_chat = None
-        if pane.selected_chat is not None and same_chat(chat, pane.selected_chat):
-            self._chat_list_ctrl.render_chat_list()
-            self._chat_list_ctrl.schedule_chat_list_selection_sync(scroll=True)
-            return
-        self._open_chat(chat, pane)
-        self._hide_sidebar_after_narrow_chat_selection()
+        self._nav_ctrl.action_toggle_split_layout()
 
     def action_prev_chat(self) -> None:
-        self._show_sidebar_for_narrow_navigation()
-        self._navigate_chat(-1)
+        self._nav_ctrl.action_prev_chat()
 
     def action_next_chat(self) -> None:
-        self._show_sidebar_for_narrow_navigation()
-        self._navigate_chat(1)
+        self._nav_ctrl.action_next_chat()
 
     def action_toggle_focus_area(self) -> None:
-        if self._navigation.layer == "top" and self._navigation.top_target_pane_uid is not None:
-            self._focus_chat_list_area()
-            return
-        if self._navigation.layer == "pane":
-            self._focus_chat_list_area()
-            return
-        self._focus_pane_selection_area()
+        self._nav_ctrl.action_toggle_focus_area()
 
     def action_nav_left(self) -> None:
-        focused = self._cursor_target_input()
-        if focused is not None:
-            focused.action_cursor_left()
-            return
-        if self._navigation.layer == "top" and self._navigation.top_target_pane_uid is not None:
-            self._move_pane_selection_in_direction("left")
+        self._nav_ctrl.action_nav_left()
 
     def action_nav_right(self) -> None:
-        focused = self._cursor_target_input()
-        if focused is not None:
-            focused.action_cursor_right()
-            return
-        if self._navigation.layer == "top" and self._navigation.top_target_pane_uid is not None:
-            self._move_pane_selection_in_direction("right")
+        self._nav_ctrl.action_nav_right()
 
     def action_nav_enter(self) -> None:
-        if self._navigation.layer == "top":
-            if self._navigation.top_target_pane_uid is None:
-                if self._navigation.chat_list_on_search:
-                    self._enter_search_layer()
-                else:
-                    self._open_selected_search_chat()
-                return
-            pane = self._pane_by_uid(self._navigation.top_target_pane_uid)
-            if pane is not None:
-                self._enter_pane_layer(pane)
-            return
-        if self._navigation.layer == "chat_list":
-            if self._navigation.chat_list_on_search:
-                self._enter_search_layer()
-            else:
-                self._open_selected_search_chat()
-            return
-        if self._navigation.layer == "search":
-            self._open_selected_search_chat()
-            return
-        if self._navigation.layer == "pane":
-            focused = self.screen.focused
-            if isinstance(focused, Input) and focused.has_class("msg_input"):
-                self._msg_ctrl.submit_message_input(focused)
-                return
-            self.action_focus_message()
+        self._nav_ctrl.action_nav_enter()
 
     def action_focus_search(self) -> None:
-        self._sidebar_state.auto_paused = False
-        self._set_sidebar_visible(True)
-        self._enter_search_layer()
+        self._nav_ctrl.action_focus_search()
 
     def action_focus_message(self) -> None:
-        pane = self._active_pane()
-        if pane.selected_chat:
-            msg_input = self._msg_ctrl.message_input_or_none(pane)
-            if msg_input is not None and not msg_input.disabled:
-                self._set_input_owner_pane(pane)
-                msg_input.focus()
+        self._nav_ctrl.action_focus_message()
 
     def action_reply_previous(self) -> None:
-        if self._navigation.layer == "top":
-            if self._navigation.top_target_pane_uid is None:
-                self._chat_list_ctrl.move_chat_list_layer_selection(-1)
-            else:
-                self._move_pane_selection_in_direction("up")
-            return
-        if self._navigation.layer == "chat_list":
-            self._chat_list_ctrl.move_chat_list_layer_selection(-1)
-            return
-        if self._navigation.layer == "search":
-            self._chat_list_ctrl.move_search_selection(-1)
-            return
-        if self._navigation.layer != "pane":
-            return
-        pane = self._active_pane()
-        if not pane.messages:
-            return
-        if pane.reply_index < 0:
-            pane.reply_index = len(pane.messages) - 1
-        elif pane.reply_index > 0:
-            pane.reply_index -= 1
-        self._msg_ctrl.render_messages(pane)
-        self._msg_ctrl.scroll_to_message(pane, pane.reply_index)
+        self._nav_ctrl.action_reply_previous()
 
     def action_reply_next(self) -> None:
-        if self._navigation.layer == "top":
-            if self._navigation.top_target_pane_uid is None:
-                self._chat_list_ctrl.move_chat_list_layer_selection(1)
-            else:
-                self._move_pane_selection_in_direction("down")
-            return
-        if self._navigation.layer == "chat_list":
-            self._chat_list_ctrl.move_chat_list_layer_selection(1)
-            return
-        if self._navigation.layer == "search":
-            self._chat_list_ctrl.move_search_selection(1)
-            return
-        if self._navigation.layer != "pane":
-            return
-        pane = self._active_pane()
-        if pane.reply_index < 0:
-            return
-        pane.reply_index += 1
-        if pane.reply_index >= len(pane.messages):
-            pane.reply_index = -1
-        self._msg_ctrl.render_messages(pane)
-        if pane.reply_index >= 0:
-            self._msg_ctrl.scroll_to_message(pane, pane.reply_index)
+        self._nav_ctrl.action_reply_next()
 
     def action_clear_reply(self) -> None:
-        if self._navigation.layer == "search":
-            self._close_search_mode()
-            return
-        if self._navigation.layer == "chat_list":
-            self._enter_top_layer()
-            return
-        if self._navigation.layer == "pane":
-            pane = self._active_pane()
-            if pane.preview_chat is None and pane.reply_index < 0:
-                self._enter_top_layer()
-                return
-        elif self._navigation.layer == "top":
-            self._hide_all_message_inputs()
-            return
-        pane = self._active_pane()
-        if pane.preview_chat is not None:
-            self._cancel_preview_timer(pane)
-            pane.preview_chat = None
-            self._chat_list_ctrl.render_chat_list()
-            self._chat_list_ctrl.schedule_chat_list_selection_sync(scroll=True)
-        elif pane.reply_index >= 0:
-            pane.reply_index = -1
-            self._msg_ctrl.render_messages(pane)
-        elif pane.selected_chat:
-            msg_input = self._msg_ctrl.message_input_or_none(pane)
-            if msg_input is not None:
-                msg_input.focus()
-        else:
-            self.query_one("#search", Input).focus()
+        self._nav_ctrl.action_clear_reply()

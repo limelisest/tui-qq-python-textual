@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest import TestCase
 
 from textual.css.query import NoMatches
@@ -54,13 +55,15 @@ class _FakeChatListController:
 
 class _FakeApp:
     def __init__(self) -> None:
-        self._panes = [ChatPaneState(uid=1)]
-        self._active_pane_uid = 1
-        self._input_owner_pane_uid = None
-        self._navigation = NavigationState()
-        self._next_pane_uid = 2
-        self._split_layout_horizontal = False
-        self._sidebar_state = SidebarState()
+        self.state = SimpleNamespace(
+            panes=[ChatPaneState(uid=1)],
+            active_pane_uid=1,
+            input_owner_pane_uid=None,
+            navigation=NavigationState(),
+            next_pane_uid=2,
+            split_layout_horizontal=False,
+            sidebar_state=SidebarState(),
+        )
         self._msg_ctrl = _FakeMessageController()
         self._chat_list_ctrl = _FakeChatListController()
         self.grid = _FakeGrid()
@@ -108,10 +111,10 @@ class PaneControllerTests(TestCase):
 
         controller.add_pane()
 
-        self.assertEqual([pane.uid for pane in app._panes], [1, 2])
-        self.assertEqual(app._active_pane_uid, 2)
-        self.assertEqual(app._navigation.top_target_pane_uid, 2)
-        self.assertEqual(app._next_pane_uid, 3)
+        self.assertEqual([pane.uid for pane in app.state.panes], [1, 2])
+        self.assertEqual(app.state.active_pane_uid, 2)
+        self.assertEqual(app.state.navigation.top_target_pane_uid, 2)
+        self.assertEqual(app.state.next_pane_uid, 3)
         self.assertEqual(app.focus_chat_list_calls, 1)
         self.assertEqual(app.sidebar_apply_calls, 1)
         self.assertEqual(app._chat_list_ctrl.sync_calls, 1)
@@ -120,35 +123,35 @@ class PaneControllerTests(TestCase):
 
     def test_add_pane_stops_at_max(self) -> None:
         app = _FakeApp()
-        app._panes = [ChatPaneState(uid=index) for index in range(1, 5)]
-        app._active_pane_uid = 1
-        app._next_pane_uid = 5
+        app.state.panes = [ChatPaneState(uid=index) for index in range(1, 5)]
+        app.state.active_pane_uid = 1
+        app.state.next_pane_uid = 5
         controller = PaneController(app)
 
         controller.add_pane()
 
-        self.assertEqual(len(app._panes), MAX_SPLIT_PANES)
-        self.assertEqual(app._next_pane_uid, 5)
+        self.assertEqual(len(app.state.panes), MAX_SPLIT_PANES)
+        self.assertEqual(app.state.next_pane_uid, 5)
         self.assertEqual(app.toasts, ["最多 4 个分屏"])
 
     def test_close_pane_selects_neighbor_and_clears_input_owner(self) -> None:
         app = _FakeApp()
-        app._panes = [
+        app.state.panes = [
             ChatPaneState(uid=1),
             ChatPaneState(uid=2),
             ChatPaneState(uid=3),
         ]
-        app._active_pane_uid = 2
-        app._navigation.top_target_pane_uid = 2
-        app._input_owner_pane_uid = 2
+        app.state.active_pane_uid = 2
+        app.state.navigation.top_target_pane_uid = 2
+        app.state.input_owner_pane_uid = 2
         controller = PaneController(app)
 
-        controller.close_pane(app._panes[1])
+        controller.close_pane(app.state.panes[1])
 
-        self.assertEqual([pane.uid for pane in app._panes], [1, 3])
-        self.assertEqual(app._active_pane_uid, 3)
-        self.assertEqual(app._navigation.top_target_pane_uid, 3)
-        self.assertIsNone(app._input_owner_pane_uid)
+        self.assertEqual([pane.uid for pane in app.state.panes], [1, 3])
+        self.assertEqual(app.state.active_pane_uid, 3)
+        self.assertEqual(app.state.navigation.top_target_pane_uid, 3)
+        self.assertIsNone(app.state.input_owner_pane_uid)
         self.assertIn("pane_count_2", app.grid.classes)
         self.assertEqual(app.sidebar_apply_calls, 1)
         self.assertEqual(app._chat_list_ctrl.sync_calls, 1)
@@ -157,20 +160,20 @@ class PaneControllerTests(TestCase):
         app = _FakeApp()
         controller = PaneController(app)
 
-        controller.close_pane(app._panes[0])
+        controller.close_pane(app.state.panes[0])
 
-        self.assertEqual([pane.uid for pane in app._panes], [1])
+        self.assertEqual([pane.uid for pane in app.state.panes], [1])
         self.assertEqual(app.toasts, ["至少保留 1 个分屏"])
 
     def test_toggle_layout_reapplies_sidebar_and_scrolls_auto_panes(self) -> None:
         app = _FakeApp()
-        app._panes = [ChatPaneState(uid=1), ChatPaneState(uid=2)]
-        app._panes[1].auto_scroll = False
+        app.state.panes = [ChatPaneState(uid=1), ChatPaneState(uid=2)]
+        app.state.panes[1].auto_scroll = False
         controller = PaneController(app)
 
         controller.toggle_split_layout()
 
-        self.assertTrue(app._split_layout_horizontal)
+        self.assertTrue(app.state.split_layout_horizontal)
         self.assertIn("pane_layout_horizontal", app.grid.classes)
         self.assertEqual(app.sidebar_apply_calls, 1)
         self.assertEqual(len(app.after_refresh), 1)

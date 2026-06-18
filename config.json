@@ -7,5 +7,7 @@
   "recent_chats_count": 5,
   "history_message_count": 50,
   "chat_list_render_limit": 300,
-  "cache_group_members_on_open": false
+  "cache_group_members_on_open": false,
+  "enable_message_reply_action": true,
+  "enable_message_plus_one_action": true
 }

@@ -15,6 +15,8 @@ DEFAULT_CONFIG = {
     "history_message_count": 50,
     "chat_list_render_limit": 300,
     "cache_group_members_on_open": False,
+    "enable_message_reply_action": True,
+    "enable_message_plus_one_action": True,
 }
 
 
@@ -50,3 +52,5 @@ RECENT_CHATS_COUNT = int(APP_CONFIG["recent_chats_count"])
 HISTORY_MESSAGE_COUNT = int(APP_CONFIG["history_message_count"])
 CHAT_LIST_RENDER_LIMIT = int(APP_CONFIG["chat_list_render_limit"])
 CACHE_GROUP_MEMBERS_ON_OPEN = bool(APP_CONFIG["cache_group_members_on_open"])
+ENABLE_MESSAGE_REPLY_ACTION = bool(APP_CONFIG["enable_message_reply_action"])
+ENABLE_MESSAGE_PLUS_ONE_ACTION = bool(APP_CONFIG["enable_message_plus_one_action"])

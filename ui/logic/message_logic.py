@@ -21,7 +21,9 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable, List, Optional, Sequence, Tuple
 
+from rich.console import RenderableType
 from rich.markup import escape as rich_escape
+from rich.padding import Padding
 from rich.text import Text
 
 from models import ChatInfo, MessageData
@@ -311,8 +313,8 @@ class MessageRenderables:
     """
 
     header: Text
-    preview: Optional[Text]
-    content: Text
+    preview: Optional[RenderableType]
+    content: RenderableType
 
 
 def build_message_renderables(
@@ -337,19 +339,16 @@ def build_message_renderables(
     content = rich_escape(msg.content or "")
     escaped_name = rich_escape(title_text + name)
 
-    if selected:
-        header_text = f"{escaped_name} {timestamp}" if timestamp else escaped_name
-        header = Text.from_markup(f"[reverse]{header_text}[/]")
-    else:
-        header = Text.from_markup(f"[{style}]{escaped_name}[/]{time_text}")
+    header = Text.from_markup(f"[{style}]{escaped_name}[/]{time_text}")
 
-    preview: Optional[Text] = None
+    preview: Optional[RenderableType] = None
     if reply_preview:
-        preview_style = "reverse" if selected else "dim"
-        preview = Text.from_markup(f"[{preview_style}]  {rich_escape(reply_preview)}[/]")
+        preview = Padding(
+            Text.from_markup(f"[dim]{rich_escape(reply_preview)}[/]"),
+            (0, 0, 0, 2),
+        )
 
-    content_markup = f"[reverse]  {content}[/]" if selected else f"  {content}"
-    content_renderable = Text.from_markup(content_markup)
+    content_renderable = Padding(Text.from_markup(content), (0, 0, 0, 2))
     return MessageRenderables(header=header, preview=preview, content=content_renderable)
 
 
@@ -403,3 +402,62 @@ def _register_default_handlers() -> None:
 
 
 _register_default_handlers()
+
+
+# --------------------------------------------------------------------------- #
+# Realtime event parsing (pure)
+# --------------------------------------------------------------------------- #
+
+
+@dataclass(frozen=True)
+class RealtimeEventUpdate:
+    """Pure parsed result from a OneBot message event.
+
+    Returned by :func:`parse_realtime_event`; the caller (typically
+    ``RealtimeController``) applies the side-effects to storage and UI.
+    """
+
+    chat_type: str
+    chat_id: int
+    message: MessageData
+
+
+def parse_realtime_event(
+    event: dict,
+    at_resolver: Optional[AtResolver] = None,
+) -> Optional[RealtimeEventUpdate]:
+    """Convert a raw OneBot message event dict into a structured update.
+
+    This is a **pure function** — no I/O, no side effects.  Returns ``None``
+    when the event is not a message event or cannot be parsed.
+
+    Parameters
+    ----------
+    event:
+        Raw OneBot event dict.
+    at_resolver:
+        Optional resolver for ``@`` mentions.  Defaults to passthrough
+        (leaves ``@qq`` as-is).
+    """
+    if event.get("post_type") != "message":
+        return None
+    chat_type = "group" if event.get("message_type") == "group" else "private"
+    chat_id = event.get("group_id") if chat_type == "group" else event.get("user_id")
+    try:
+        chat_id = int(chat_id or 0)
+    except (TypeError, ValueError):
+        return None
+    if not chat_id:
+        return None
+    resolver = at_resolver or _passthrough_at_resolver
+    try:
+        message = message_from_event(event, resolver)
+    except Exception:
+        return None
+    if not message.chat_id:
+        return None
+    return RealtimeEventUpdate(
+        chat_type=message.chat_type,
+        chat_id=message.chat_id,
+        message=message,
+    )

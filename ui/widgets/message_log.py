@@ -41,11 +41,23 @@ class MessageLog(VerticalScroll):
         self.refresh(layout=True)
         return self
 
-    def write(self, content) -> "MessageLog":
+    def write(
+        self,
+        content,
+        *,
+        classes: str = "",
+        message_index: int | None = None,
+        action_ranges: dict[str, tuple[int, int]] | None = None,
+    ) -> "MessageLog":
         # A purely empty string would collapse to zero height, so render it as
         # a single space to keep the blank separator line visible.
         line_content = " " if content == "" else content
-        line = Static(line_content, classes="message_log_line")
+        line_classes = "message_log_line"
+        if classes:
+            line_classes = f"{line_classes} {classes}"
+        line = Static(line_content, classes=line_classes)
+        line.message_index = message_index
+        line.message_action_ranges = action_ranges or {}
         self._line_widgets.append(line)
         self.mount(line)
         if self.max_lines is not None and len(self._line_widgets) > self.max_lines:
@@ -60,6 +72,15 @@ class MessageLog(VerticalScroll):
         if 0 <= index < len(self._line_widgets):
             return self._line_widgets[index]
         return None
+
+    def set_line_selected(self, index: int, selected: bool) -> None:
+        widget = self.line_widget(index)
+        if widget is None:
+            return
+        if selected:
+            widget.add_class("message_log_line_selected")
+        else:
+            widget.remove_class("message_log_line_selected")
 
     def scroll_end_when_ready(self) -> None:
         """Best-effort scroll to the bottom, robust to layout not being ready.

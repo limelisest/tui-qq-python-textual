@@ -74,15 +74,15 @@ class ChatListController:
         app = self._app
         search = app.query_one("#search", Input).value
         with app._state_lock:
-            chats_snapshot = list(app._chats)
-            search_cache = app._search_cache
+            chats_snapshot = list(app.state.chats)
+            search_cache = app.state.search_cache
         filtered = chat_logic.filter_chats(
             chats_snapshot, search, app.storage, search_cache
         )
         render_limit = max(0, int(config.CHAT_LIST_RENDER_LIMIT))
         visible = filtered[:render_limit] if render_limit else filtered
         with app._state_lock:
-            app._filtered_chats = visible
+            app.state.filtered_chats = visible
 
         list_view = app.query_one("#chat_list", ListView)
         list_view.clear()
@@ -127,7 +127,7 @@ class ChatListController:
             rendered.append(chat)
 
         with app._state_lock:
-            app._rendered_chats = rendered
+            app.state.rendered_chats = rendered
 
         self.schedule_chat_list_selection_sync(scroll=False)
 
@@ -136,7 +136,7 @@ class ChatListController:
     def sync_chat_list_selection(self, scroll: bool = True) -> None:
         app = self._app
         with app._state_lock:
-            rendered = list(app._rendered_chats)
+            rendered = list(app.state.rendered_chats)
         if not rendered:
             return
         target = app._preview_chat or app._selected_chat
@@ -171,9 +171,9 @@ class ChatListController:
     def show_empty_chats(self, message: str) -> None:
         app = self._app
         with app._state_lock:
-            app._chats = []
-            app._filtered_chats = []
-            app._rendered_chats = []
+            app.state.chats = []
+            app.state.filtered_chats = []
+            app.state.rendered_chats = []
         app.query_one("#chat_list", ListView).clear()
         from rich.markup import escape as rich_escape
         for pane in app._panes:
@@ -186,9 +186,9 @@ class ChatListController:
 
     def move_chat_list_layer_selection(self, direction: int) -> None:
         app = self._app
-        if app._navigation.chat_list_on_search:
+        if app.state.navigation.chat_list_on_search:
             if direction > 0:
-                app._navigation.chat_list_on_search = False
+                app.state.navigation.chat_list_on_search = False
                 self.set_search_nav_selected(False)
                 self.schedule_chat_list_selection_sync(scroll=True)
                 try:
@@ -198,7 +198,7 @@ class ChatListController:
             return
 
         with app._state_lock:
-            rendered = list(app._rendered_chats)
+            rendered = list(app.state.rendered_chats)
         if direction < 0:
             list_view = app.query_one("#chat_list", ListView)
             index = list_view.index
@@ -207,12 +207,12 @@ class ChatListController:
                 None,
             )
             if first_chat_index is None or index == first_chat_index:
-                app._navigation.chat_list_on_search = True
+                app.state.navigation.chat_list_on_search = True
                 self.set_search_nav_selected(True)
                 return
 
         self.move_search_selection(direction)
-        app._navigation.chat_list_on_search = False
+        app.state.navigation.chat_list_on_search = False
         self.set_search_nav_selected(False)
         try:
             app.query_one("#chat_list", ListView).focus()
@@ -222,7 +222,7 @@ class ChatListController:
     def move_search_selection(self, direction: int) -> None:
         app = self._app
         with app._state_lock:
-            rendered = list(app._rendered_chats)
+            rendered = list(app.state.rendered_chats)
         if not rendered:
             return
         list_view = app.query_one("#chat_list", ListView)
@@ -248,7 +248,7 @@ class ChatListController:
     def selected_search_chat(self) -> Optional[ChatInfo]:
         app = self._app
         with app._state_lock:
-            rendered = list(app._rendered_chats)
+            rendered = list(app.state.rendered_chats)
         if not rendered:
             return None
         list_view = app.query_one("#chat_list", ListView)
@@ -275,7 +275,7 @@ class ChatListController:
     def refresh_chat_list_item(self, chat_type: str, chat_id: int) -> None:
         app = self._app
         with app._state_lock:
-            rendered = list(app._rendered_chats)
+            rendered = list(app.state.rendered_chats)
         target_index = -1
         target_chat: Optional[ChatInfo] = None
         for index, chat in enumerate(rendered):

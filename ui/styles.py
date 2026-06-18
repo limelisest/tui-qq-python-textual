@@ -217,6 +217,12 @@ Screen {
     padding: 0 0;
 }
 
+.message_log_line_selected {
+    background: $primary;
+    color: $text;
+    text-style: bold;
+}
+
 .reply_info {
     height: 1;
     padding: 0 1;
