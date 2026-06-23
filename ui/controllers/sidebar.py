@@ -45,6 +45,8 @@ class SidebarController:
         button.tooltip = "隐藏群组列表" if visible else "显示群组列表"
         if not visible:
             self.focus_after_sidebar_hidden(sidebar, button)
+            return
+        self._app._pane_ctrl.scroll_auto_panes()
 
     # ------------------------------------------------------------------ #
     # Auto-visibility (based on terminal width / pane count)

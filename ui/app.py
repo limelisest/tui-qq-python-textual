@@ -49,6 +49,13 @@ class QQChatApp(App):
     SUB_TITLE = "NapCat / OneBot v11"
     CSS = APP_CSS
 
+    _TOP_TOOLTIP_BUTTON_IDS = (
+        "sidebar_toggle_btn",
+        "header_menu_btn",
+        "split_layout_btn",
+        "split_add_btn",
+    )
+
     _STATE_COMPAT_FIELDS = {
         "_chats": "chats",
         "_filtered_chats": "filtered_chats",
@@ -82,6 +89,7 @@ class QQChatApp(App):
         Binding("ctrl+w", "close_current_pane", "关闭分屏", priority=True),
         Binding("ctrl+d", "add_pane", "分屏", priority=True),
         Binding("ctrl+e", "toggle_split_layout", "切换分屏布局", priority=True),
+        Binding("ctrl+b", "scroll_bottom", "置底", priority=True),
         Binding("escape", "clear_reply", "取消"),
     ]
 
@@ -448,6 +456,29 @@ class QQChatApp(App):
         row.remove_class("visible")
         row.refresh(layout=True)
 
+    def _reset_top_button_tooltips(self) -> None:
+        buttons: list[tuple[Button, object]] = []
+        for button_id in self._TOP_TOOLTIP_BUTTON_IDS:
+            try:
+                button = self.query_one(f"#{button_id}", Button)
+            except NoMatches:
+                continue
+            tooltip = button.tooltip
+            if tooltip is None:
+                continue
+            button.tooltip = None
+            buttons.append((button, tooltip))
+        if not buttons:
+            return
+
+        def restore() -> None:
+            for button, tooltip in buttons:
+                if button.is_attached:
+                    button.tooltip = tooltip
+
+        self.call_after_refresh(restore)
+        self.set_timer(0.05, restore)
+
     # ------------------------------------------------------------------ #
     # Sidebar visibility (delegated to SidebarController)
     # ------------------------------------------------------------------ #
@@ -481,10 +512,17 @@ class QQChatApp(App):
     @on(events.AppBlur)
     def _on_app_blurred(self, _: events.AppBlur) -> None:
         self._hide_all_message_inputs()
+        self._reset_top_button_tooltips()
 
     @on(events.AppFocus)
     def _on_app_focused(self, _: events.AppFocus) -> None:
         self.call_after_refresh(self._sync_message_input_focus)
+
+    @on(events.Leave)
+    def _on_app_leave(self, event: events.Leave) -> None:
+        node_id = getattr(getattr(event, "node", None), "id", None)
+        if node_id == "top_bar" or node_id in self._TOP_TOOLTIP_BUTTON_IDS:
+            self._reset_top_button_tooltips()
 
     @on(events.Key)
     def _on_app_key(self, event: events.Key) -> None:
@@ -701,6 +739,9 @@ class QQChatApp(App):
 
     def action_toggle_split_layout(self) -> None:
         self._nav_ctrl.action_toggle_split_layout()
+
+    def action_scroll_bottom(self) -> None:
+        self._nav_ctrl.action_scroll_bottom()
 
     def action_prev_chat(self) -> None:
         self._nav_ctrl.action_prev_chat()

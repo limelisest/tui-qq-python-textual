@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import config
 from models import ChatInfo, MessageData
 from ui.logic import message_logic
 from ui.state import ChatPaneState, same_chat
@@ -16,6 +17,20 @@ class MessageActionsMixin:
     ``message_input_or_none``, ``pane_input_visible``).
     """
 
+    def trim_pane_messages(self, pane: ChatPaneState) -> int:
+        limit = max(0, int(config.MESSAGE_RECORD_LIMIT))
+        if limit <= 0 or len(pane.messages) <= limit:
+            return 0
+        removed_count = len(pane.messages) - limit
+        del pane.messages[:removed_count]
+        pane.message_line_spans = []
+        if pane.reply_index >= 0:
+            pane.reply_index -= removed_count
+            if pane.reply_index < 0:
+                pane.reply_index = -1
+                pane.message_action_index = 0
+        return removed_count
+
     def append_message_if_current(
         self, chat: ChatInfo, message: MessageData
     ) -> None:
@@ -23,8 +38,15 @@ class MessageActionsMixin:
             if not same_chat(pane.selected_chat, chat):
                 continue
             pane.messages.append(message)
+            trimmed = self.trim_pane_messages(pane)
             log = self.message_log_or_none(pane)
             if log is None:
+                continue
+            if trimmed:
+                self.render_messages(pane)
+                pane.auto_scroll = True
+                self.hide_scroll_bottom_btn(pane)
+                log.scroll_end_when_ready()
                 continue
             line_span = self.write_message(
                 log, message, pane, message_index=len(pane.messages) - 1
@@ -89,6 +111,9 @@ class MessageActionsMixin:
             return
         pane.messages = messages
         pane.message_line_spans = []
+        pane.reply_index = -1
+        pane.message_action_index = 0
+        self.trim_pane_messages(pane)
         pane.auto_scroll = True
         self.hide_scroll_bottom_btn(pane)
         log = self.message_log_or_none(pane)

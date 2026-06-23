@@ -80,6 +80,7 @@ class NavigationController:
         self.activate_pane(
             pane, focus_input=focus_input and pane.selected_chat is not None
         )
+        self._app._chat_list_ctrl.schedule_chat_list_selection_sync(scroll=True)
 
     def enter_pane_layer_after_refresh(self, pane: ChatPaneState) -> None:
         self._app.state.pending_pane_focus_uid = pane.uid
@@ -113,16 +114,8 @@ class NavigationController:
             ss.tab_restore_reason = None
         ss.auto_paused = False
         self._app._sidebar_ctrl.set_sidebar_visible(True)
-        self.set_top_target_index(0)
-
-        def focus_list() -> None:
-            try:
-                self._app.query_one("#chat_list", ListView).focus()
-            except NoMatches:
-                pass
-
-        focus_list()
-        self._app.call_after_refresh(focus_list)
+        self._app.state.navigation.top_target_pane_uid = None
+        self.enter_search_layer()
 
     def focus_pane_selection_area(self) -> None:
         pane = self._app._pane_by_uid(
@@ -395,6 +388,16 @@ class NavigationController:
 
     def action_toggle_split_layout(self) -> None:
         self._app._toggle_split_layout()
+
+    def action_scroll_bottom(self) -> None:
+        if self._app.state.navigation.layer != "pane":
+            return
+        pane = self._app._active_pane()
+        if pane.selected_chat is None:
+            return
+        pane.auto_scroll = True
+        self._app._msg_ctrl.hide_scroll_bottom_btn(pane)
+        self._app._msg_ctrl.force_scroll_end(pane.uid)
 
     def action_prev_chat(self) -> None:
         self._app._sidebar_ctrl.show_sidebar_for_narrow_navigation()

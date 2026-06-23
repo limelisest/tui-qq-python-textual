@@ -13,6 +13,7 @@ DEFAULT_CONFIG = {
     "settings_file": "settings.json",
     "recent_chats_count": 5,
     "history_message_count": 50,
+    "message_record_limit": 100,
     "chat_list_render_limit": 300,
     "cache_group_members_on_open": False,
     "enable_message_reply_action": True,
@@ -50,6 +51,7 @@ SETTINGS_FILE = _resolve_path(
 )
 RECENT_CHATS_COUNT = int(APP_CONFIG["recent_chats_count"])
 HISTORY_MESSAGE_COUNT = int(APP_CONFIG["history_message_count"])
+MESSAGE_RECORD_LIMIT = int(APP_CONFIG["message_record_limit"])
 CHAT_LIST_RENDER_LIMIT = int(APP_CONFIG["chat_list_render_limit"])
 CACHE_GROUP_MEMBERS_ON_OPEN = bool(APP_CONFIG["cache_group_members_on_open"])
 ENABLE_MESSAGE_REPLY_ACTION = bool(APP_CONFIG["enable_message_reply_action"])

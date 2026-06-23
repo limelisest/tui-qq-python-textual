@@ -161,12 +161,21 @@ class MouseController:
         else:
             target.replace(line, *selection)
 
+    def clear_message_selection_unless_action(self, event: events.MouseEvent) -> None:
+        if self.message_action_from_mouse_event(event) is not None:
+            return
+        for pane in list(self._app.state.panes):
+            if pane.reply_index >= 0:
+                self._app._msg_ctrl.clear_message_selection(pane)
+
     # ------------------------------------------------------------------ #
     # Composite event handlers (called from app.py)
     # ------------------------------------------------------------------ #
 
     def handle_mouse_down(self, event: events.MouseDown) -> None:
         app = self._app
+        if event.button == LEFT_MOUSE_BUTTON:
+            self.clear_message_selection_unless_action(event)
         pane = app._pane_from_mouse_event(event)
         if pane is not None:
             app.state.navigation.layer = "pane"

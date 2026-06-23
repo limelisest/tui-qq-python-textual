@@ -78,8 +78,14 @@ class RealtimeController:
                 continue
             updated = True
             pane.messages.append(message)
+            trimmed = self._app._msg_ctrl.trim_pane_messages(pane)
             log = self._app._msg_ctrl.message_log_or_none(pane)
             if log is None:
+                continue
+            if trimmed:
+                self._app._msg_ctrl.render_messages(pane)
+                if pane.auto_scroll:
+                    log.scroll_end_when_ready()
                 continue
             line_span = self._app._msg_ctrl.write_message(
                 log,
