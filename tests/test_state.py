@@ -56,3 +56,15 @@ class AppStateTests(TestCase):
         self.assertEqual(pane.uid, 1)
         self.assertEqual(state.active_pane_uid, 1)
         self.assertEqual([pane.uid for pane in state.panes], [1])
+
+    def test_pending_chat_keys_move_to_front_and_remove(self) -> None:
+        state = AppState()
+
+        state.add_pending_chat("private_1")
+        state.add_pending_chat("group_2")
+        state.add_pending_chat("private_1")
+
+        self.assertEqual(state.pending_chat_keys, ["private_1", "group_2"])
+        self.assertTrue(state.remove_pending_chat("group_2"))
+        self.assertFalse(state.remove_pending_chat("missing_3"))
+        self.assertEqual(state.pending_chat_keys, ["private_1"])

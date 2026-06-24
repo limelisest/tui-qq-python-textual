@@ -68,6 +68,17 @@ class ChatListController:
             Text("", no_wrap=True, overflow="ellipsis"),
         )
 
+    @staticmethod
+    def separator_item(label: str) -> ListItem:
+        return ListItem(
+            Static(
+                Text(f"──────── {label} ────────"),
+                classes="chat_separator",
+            ),
+            classes="chat_separator_item",
+            disabled=True,
+        )
+
     # -- main rendering ------------------------------------------------- #
 
     def render_chat_list(self) -> None:
@@ -88,25 +99,60 @@ class ChatListController:
         list_view.clear()
         pinned = set(app.storage.get_pinned_chats())
         rendered: list[Optional[ChatInfo]] = []
+        pending_order = {
+            key: index for index, key in enumerate(app.state.pending_chat_keys)
+        }
+        pending_chats = [
+            chat
+            for chat in visible
+            if app.storage.chat_key(chat.chat_type, chat.chat_id) in pending_order
+        ]
+        pending_chats.sort(
+            key=lambda chat: pending_order[
+                app.storage.chat_key(chat.chat_type, chat.chat_id)
+            ]
+        )
+        regular_chats = [
+            chat
+            for chat in visible
+            if app.storage.chat_key(chat.chat_type, chat.chat_id)
+            not in pending_order
+        ]
+        if pending_chats:
+            list_view.append(self.separator_item("未读会话"))
+            rendered.append(None)
+            for chat in pending_chats:
+                key = app.storage.chat_key(chat.chat_type, chat.chat_id)
+                is_pinned = key in pinned
+                name, preview = self.chat_list_text(chat, is_pinned)
+                name_text, preview_text, gap_text = self.chat_item_texts(
+                    name, preview
+                )
+                list_view.append(
+                    ListItem(
+                        Vertical(
+                            Static(name_text, classes="chat_name"),
+                            Static(preview_text, classes="chat_preview"),
+                            Static(gap_text, classes="chat_gap"),
+                            classes="chat_item",
+                        ),
+                        classes="chat_list_item",
+                    )
+                )
+                rendered.append(chat)
+            if regular_chats:
+                list_view.append(self.separator_item("置顶会话"))
+                rendered.append(None)
         has_pinned = any(
             app.storage.chat_key(chat.chat_type, chat.chat_id) in pinned
-            for chat in visible
+            for chat in regular_chats
         )
         separator_added = False
-        for chat in visible:
+        for chat in regular_chats:
             key = app.storage.chat_key(chat.chat_type, chat.chat_id)
             is_pinned = key in pinned
             if has_pinned and not is_pinned and not separator_added:
-                list_view.append(
-                    ListItem(
-                        Static(
-                            Text("──────── 其它会话 ────────"),
-                            classes="chat_separator",
-                        ),
-                        classes="chat_separator_item",
-                        disabled=True,
-                    )
-                )
+                list_view.append(self.separator_item("其它会话"))
                 rendered.append(None)
                 separator_added = True
             name, preview = self.chat_list_text(chat, is_pinned)

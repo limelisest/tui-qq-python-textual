@@ -70,6 +70,7 @@ class AppState:
     friend_remarks: dict[int, str] = field(default_factory=dict)
     right_click_selected_text: str = ""
     sidebar_state: "SidebarState" = field(default_factory=_new_sidebar_state)
+    pending_chat_keys: list[str] = field(default_factory=list)
 
     def pane_by_uid(self, uid: Optional[int]) -> Optional[ChatPaneState]:
         return next((pane for pane in self.panes if pane.uid == uid), None)
@@ -85,6 +86,17 @@ class AppState:
             return pane
         self.active_pane_uid = self.panes[0].uid
         return self.panes[0]
+
+    def add_pending_chat(self, chat_key: str) -> None:
+        if chat_key in self.pending_chat_keys:
+            self.pending_chat_keys.remove(chat_key)
+        self.pending_chat_keys.insert(0, chat_key)
+
+    def remove_pending_chat(self, chat_key: str) -> bool:
+        if chat_key not in self.pending_chat_keys:
+            return False
+        self.pending_chat_keys.remove(chat_key)
+        return True
 
 
 def same_chat(left: Optional[ChatInfo], right: Optional[ChatInfo]) -> bool:

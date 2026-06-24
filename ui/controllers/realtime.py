@@ -20,6 +20,49 @@ class RealtimeController:
     def __init__(self, app) -> None:
         self._app = app
 
+    def _chat_key(self, chat_type: str, chat_id: int) -> str:
+        return self._app.storage.chat_key(chat_type, chat_id)
+
+    def _chat_is_open(self, chat_type: str, chat_id: int) -> bool:
+        return any(
+            pane.selected_chat is not None
+            and pane.selected_chat.chat_type == chat_type
+            and pane.selected_chat.chat_id == chat_id
+            for pane in self._app.state.panes
+        )
+
+    def _event_mentions_self(self, event: dict) -> bool:
+        self_id = getattr(self._app.ob, "self_id", None)
+        if self_id is None:
+            return False
+        message = event.get("message", "")
+        if not isinstance(message, list):
+            return False
+        self_id_text = str(self_id)
+        for segment in message:
+            if not isinstance(segment, dict) or segment.get("type") != "at":
+                continue
+            data = segment.get("data", {}) or {}
+            qq = str(data.get("qq", ""))
+            if qq == self_id_text or qq.lower() == "all":
+                return True
+        return False
+
+    def _should_mark_pending(self, event: dict, chat_type: str, chat_id: int) -> bool:
+        if self._chat_is_open(chat_type, chat_id):
+            return False
+        user_id = event.get("user_id")
+        try:
+            sender_id = int(user_id or 0)
+        except (TypeError, ValueError):
+            sender_id = 0
+        self_id = getattr(self._app.ob, "self_id", None)
+        if self_id is not None and sender_id == self_id:
+            return False
+        if chat_type == "private":
+            return True
+        return chat_type == "group" and self._event_mentions_self(event)
+
     # ------------------------------------------------------------------ #
     # Event drain (called from ``on_mount`` interval)
     # ------------------------------------------------------------------ #
@@ -96,9 +139,15 @@ class RealtimeController:
             pane.message_line_spans.append(line_span)
             if pane.auto_scroll:
                 log.scroll_end_when_ready()
-        self._app._chat_list_ctrl.refresh_chat_list_item(
-            message.chat_type, message.chat_id
-        )
+        if self._should_mark_pending(event, message.chat_type, message.chat_id):
+            self._app.state.add_pending_chat(
+                self._chat_key(message.chat_type, message.chat_id)
+            )
+            self._app._chat_list_ctrl.render_chat_list()
+        else:
+            self._app._chat_list_ctrl.refresh_chat_list_item(
+                message.chat_type, message.chat_id
+            )
         if updated:
             self._app._msg_ctrl.update_reply_info(
                 self._app._active_pane()

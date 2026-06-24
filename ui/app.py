@@ -684,6 +684,9 @@ class QQChatApp(App):
         self, chat: ChatInfo, pane: Optional[ChatPaneState] = None
     ) -> None:
         pane = pane or self._active_pane()
+        self.state.remove_pending_chat(
+            self.storage.chat_key(chat.chat_type, chat.chat_id)
+        )
         pane.selected_chat = chat
         self._activate_pane(pane)
         pane.reply_index = -1
