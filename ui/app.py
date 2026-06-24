@@ -715,9 +715,6 @@ class QQChatApp(App):
                 if chat.chat_type == chat_type and chat.chat_id == chat_id:
                     chat.last_time = float(timestamp or time.time())
                     break
-            self.state.chats.sort(
-                key=lambda c: chat_logic.chat_sort_key(c, self.storage)
-            )
 
     # ------------------------------------------------------------------ #
     # Sending messages

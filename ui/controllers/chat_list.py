@@ -332,8 +332,10 @@ class ChatListController:
         if target_chat is None:
             return
 
+        key = app.storage.chat_key(chat_type, chat_id)
+        is_pending = key in app.state.pending_chat_keys
         pinned = set(app.storage.get_pinned_chats())
-        is_pinned = app.storage.chat_key(chat_type, chat_id) in pinned
+        is_pinned = key in pinned
         name, preview = self.chat_list_text(target_chat, is_pinned)
         list_view = app.query_one("#chat_list", ListView)
         if target_index >= len(list_view.children):
@@ -348,3 +350,73 @@ class ChatListController:
         container.children[0].update(name_text)
         container.children[1].update(preview_text)
         container.children[2].update(gap_text)
+
+        # -- Surgical reorder: move DOM element to correct sorted position --
+        if is_pending:
+            return
+
+        # Don't reorder when user is navigating the list or search box
+        focused = app.screen.focused
+        if focused is not None:
+            focused_id = getattr(focused, "id", None)
+            if focused_id == "search":
+                return
+            for ancestor in focused.ancestors:
+                if getattr(ancestor, "id", None) == "chat_list":
+                    return
+
+        pinned_order = {
+            k: idx for idx, k in enumerate(app.storage.get_pinned_chats())
+        }
+
+        def _sort_key(c: ChatInfo) -> tuple:
+            return chat_logic.chat_sort_key(c, app.storage, pinned_order)
+
+        my_sk = _sort_key(target_chat)
+
+        # Find section boundaries (delimited by None separators / pending chats)
+        section_start = target_index
+        while section_start > 0:
+            prev = rendered[section_start - 1]
+            if prev is None:
+                break
+            pk = app.storage.chat_key(prev.chat_type, prev.chat_id)
+            if pk in app.state.pending_chat_keys:
+                break
+            section_start -= 1
+
+        section_end = target_index
+        while section_end < len(rendered) - 1:
+            nxt = rendered[section_end + 1]
+            if nxt is None:
+                break
+            section_end += 1
+
+        # Find the correct position: first index where sort_key > my_sk
+        new_pos = section_end + 1  # default: end of section
+        for i in range(section_start, section_end + 1):
+            c = rendered[i]
+            if c is None:
+                continue
+            if c.chat_type == chat_type and c.chat_id == chat_id:
+                continue
+            if _sort_key(c) > my_sk:
+                new_pos = i
+                break
+
+        # Compute insert position in rendered_chats after pop
+        insert_at = new_pos - 1 if new_pos > target_index else new_pos
+        if insert_at == target_index:
+            return  # No position change
+
+        # Update rendered_chats
+        with app._state_lock:
+            r = app.state.rendered_chats
+            chat_obj = r.pop(target_index)
+            r.insert(insert_at, chat_obj)
+
+        # Move DOM element surgically (no full rebuild → no flicker)
+        if new_pos >= len(list_view.children):
+            list_view.move_child(target_index, after=len(list_view.children) - 1)
+        else:
+            list_view.move_child(target_index, before=new_pos)
