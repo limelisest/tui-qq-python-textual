@@ -31,7 +31,8 @@ class SidebarController:
     # ------------------------------------------------------------------ #
 
     def set_sidebar_visible(
-        self, visible: bool, reason: Optional[str] = None
+        self, visible: bool, reason: Optional[str] = None,
+        move_focus: bool = True,
     ) -> None:
         try:
             sidebar = self._app.query_one("#sidebar", Vertical)
@@ -44,7 +45,8 @@ class SidebarController:
         button.label = "<" if visible else ">"
         button.tooltip = "隐藏群组列表" if visible else "显示群组列表"
         if not visible:
-            self.focus_after_sidebar_hidden(sidebar, button)
+            if move_focus:
+                self.focus_after_sidebar_hidden(sidebar, button)
             return
         self._app._pane_ctrl.scroll_auto_panes()
 

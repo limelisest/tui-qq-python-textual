@@ -91,6 +91,7 @@ class QQChatApp(App):
         Binding("ctrl+e", "toggle_split_layout", "切换分屏布局", priority=True),
         Binding("ctrl+b", "scroll_bottom", "置底", priority=True),
         Binding("escape", "clear_reply", "取消"),
+        Binding("shift+tab", "toggle_sidebar", "显示/隐藏群列表", priority=True),
     ]
 
     def __init__(self):
@@ -483,8 +484,8 @@ class QQChatApp(App):
     # Sidebar visibility (delegated to SidebarController)
     # ------------------------------------------------------------------ #
 
-    def _set_sidebar_visible(self, visible: bool, reason: Optional[str] = None) -> None:
-        self._sidebar_ctrl.set_sidebar_visible(visible, reason)
+    def _set_sidebar_visible(self, visible: bool, reason: Optional[str] = None, move_focus: bool = True) -> None:
+        self._sidebar_ctrl.set_sidebar_visible(visible, reason, move_focus)
 
     def _apply_sidebar_auto_visibility(self, size=None, pixel_size=None) -> None:
         self._sidebar_ctrl.apply_sidebar_auto_visibility(size, pixel_size)
@@ -569,6 +570,14 @@ class QQChatApp(App):
 
         self.state.sidebar_state.auto_paused = False
         self._set_sidebar_visible(True)
+
+    def action_toggle_sidebar(self) -> None:
+        visible = self.state.sidebar_state.hidden_by is None
+        if visible:
+            self._set_sidebar_visible(False, "manual", move_focus=False)
+        else:
+            self.state.sidebar_state.auto_paused = False
+            self._set_sidebar_visible(True)
 
     @on(Button.Pressed, "#header_menu_btn")
     async def _on_header_menu(self) -> None:

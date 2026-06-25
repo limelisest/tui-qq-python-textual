@@ -547,14 +547,22 @@ class NavigationController:
             return
         old_index = pane.reply_index
         if pane.reply_index < 0:
+            msg_input = self._app._msg_ctrl.message_input_or_none(pane)
+            if msg_input is not None and not msg_input.disabled:
+                msg_input.focus()
+                return
             pane.reply_index = 0
             self._app._msg_ctrl.refresh_message_selection(
                 pane, old_index, pane.reply_index
             )
             return
+        if pane.reply_index + 1 >= len(pane.messages):
+            self._app._msg_ctrl.clear_message_selection(pane)
+            msg_input = self._app._msg_ctrl.message_input_or_none(pane)
+            if msg_input is not None and not msg_input.disabled:
+                msg_input.focus()
+            return
         pane.reply_index += 1
-        if pane.reply_index >= len(pane.messages):
-            pane.reply_index = -1
         self._app._msg_ctrl.refresh_message_selection(
             pane, old_index, pane.reply_index
         )

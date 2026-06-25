@@ -102,29 +102,68 @@ class ChatListController:
         pending_order = {
             key: index for index, key in enumerate(app.state.pending_chat_keys)
         }
+
+        def _chat_key(chat: ChatInfo) -> str:
+            return app.storage.chat_key(chat.chat_type, chat.chat_id)
+
+        # --- Group visible chats into sections ---
         pending_chats = [
-            chat
-            for chat in visible
-            if app.storage.chat_key(chat.chat_type, chat.chat_id) in pending_order
+            chat for chat in visible if _chat_key(chat) in pending_order
         ]
-        pending_chats.sort(
-            key=lambda chat: pending_order[
-                app.storage.chat_key(chat.chat_type, chat.chat_id)
-            ]
-        )
-        regular_chats = [
-            chat
-            for chat in visible
-            if app.storage.chat_key(chat.chat_type, chat.chat_id)
-            not in pending_order
-        ]
+        pending_chats.sort(key=lambda chat: pending_order[_chat_key(chat)])
+        pending_keys = {_chat_key(c) for c in pending_chats}
+
+        # Open chats (selected in any pane, pane order)
+        open_keys = []
+        for pane in app.state.panes:
+            if pane.selected_chat is not None:
+                k = _chat_key(pane.selected_chat)
+                if k not in open_keys:
+                    open_keys.append(k)
+        open_chats = []
+        seen = set(pending_keys)
+        for k in open_keys:
+            if k in seen:
+                continue
+            for chat in visible:
+                if _chat_key(chat) == k:
+                    open_chats.append(chat)
+                    seen.add(k)
+                    break
+
+        # Pinned chats (pin order, excluding open / pending)
+        pin_order = app.storage.get_pinned_chats()
+        pinned_chats = []
+        for k in pin_order:
+            if k in seen:
+                continue
+            for chat in visible:
+                if _chat_key(chat) == k:
+                    pinned_chats.append(chat)
+                    seen.add(k)
+                    break
+
+        regular_chats = [chat for chat in visible if _chat_key(chat) not in seen]
+
+        # --- Render sections in order ---
+        # Section specs: (label, chats)
+        sections: list[tuple[str, list[ChatInfo]]] = []
+
+        if open_chats:
+            sections.append(("打开会话", open_chats))
         if pending_chats:
-            list_view.append(self.separator_item("未读会话"))
+            sections.append(("未读消息", pending_chats))
+        if pinned_chats:
+            sections.append(("固定会话", pinned_chats))
+        if regular_chats:
+            sections.append(("其它会话", regular_chats))
+
+        for section_idx, (label, chats) in enumerate(sections):
+            list_view.append(self.separator_item(label))
             rendered.append(None)
-            for chat in pending_chats:
-                key = app.storage.chat_key(chat.chat_type, chat.chat_id)
-                is_pinned = key in pinned
-                name, preview = self.chat_list_text(chat, is_pinned)
+            for chat in chats:
+                key = _chat_key(chat)
+                name, preview = self.chat_list_text(chat, key in pinned)
                 name_text, preview_text, gap_text = self.chat_item_texts(
                     name, preview
                 )
@@ -140,37 +179,6 @@ class ChatListController:
                     )
                 )
                 rendered.append(chat)
-            if regular_chats:
-                list_view.append(self.separator_item("置顶会话"))
-                rendered.append(None)
-        has_pinned = any(
-            app.storage.chat_key(chat.chat_type, chat.chat_id) in pinned
-            for chat in regular_chats
-        )
-        separator_added = False
-        for chat in regular_chats:
-            key = app.storage.chat_key(chat.chat_type, chat.chat_id)
-            is_pinned = key in pinned
-            if has_pinned and not is_pinned and not separator_added:
-                list_view.append(self.separator_item("其它会话"))
-                rendered.append(None)
-                separator_added = True
-            name, preview = self.chat_list_text(chat, is_pinned)
-            name_text, preview_text, gap_text = self.chat_item_texts(
-                name, preview
-            )
-            list_view.append(
-                ListItem(
-                    Vertical(
-                        Static(name_text, classes="chat_name"),
-                        Static(preview_text, classes="chat_preview"),
-                        Static(gap_text, classes="chat_gap"),
-                        classes="chat_item",
-                    ),
-                    classes="chat_list_item",
-                )
-            )
-            rendered.append(chat)
 
         with app._state_lock:
             app.state.rendered_chats = rendered

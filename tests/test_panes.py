@@ -48,9 +48,13 @@ class _FakeMessageController:
 class _FakeChatListController:
     def __init__(self) -> None:
         self.sync_calls = 0
+        self.render_calls = 0
 
     def schedule_chat_list_selection_sync(self, scroll: bool = True) -> None:
         self.sync_calls += 1
+
+    def render_chat_list(self) -> None:
+        self.render_calls += 1
 
 
 class _FakeApp:
@@ -154,7 +158,7 @@ class PaneControllerTests(TestCase):
         self.assertIsNone(app.state.input_owner_pane_uid)
         self.assertIn("pane_count_2", app.grid.classes)
         self.assertEqual(app.sidebar_apply_calls, 1)
-        self.assertEqual(app._chat_list_ctrl.sync_calls, 1)
+        self.assertEqual(app._chat_list_ctrl.render_calls, 1)
 
     def test_close_last_pane_is_blocked(self) -> None:
         app = _FakeApp()

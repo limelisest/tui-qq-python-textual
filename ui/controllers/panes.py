@@ -213,7 +213,7 @@ class PaneController:
         self.update_pane_titles()
         self.update_split_buttons()
         self._app._apply_sidebar_auto_visibility()
-        self._app._chat_list_ctrl.schedule_chat_list_selection_sync(scroll=True)
+        self._app._chat_list_ctrl.render_chat_list()
 
     def toggle_split_layout(self) -> None:
         self._app.state.split_layout_horizontal = not self._app.state.split_layout_horizontal
