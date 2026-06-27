@@ -11,14 +11,16 @@ from typing import Optional
 
 from ui.state import ChatPaneState
 from ui.theme import (
-    SIDEBAR_AUTO_HIDE_COLUMNS,
     SIDEBAR_AUTO_HIDE_COLUMNS_2H,
+    SIDEBAR_AUTO_HIDE_COLUMNS_2V,
     SIDEBAR_AUTO_HIDE_COLUMNS_3H,
+    SIDEBAR_AUTO_HIDE_COLUMNS_3V,
     SIDEBAR_AUTO_HIDE_COLUMNS_4,
     SIDEBAR_AUTO_HIDE_COLUMNS_SINGLE,
-    SIDEBAR_AUTO_HIDE_PIXELS,
     SIDEBAR_AUTO_HIDE_PIXELS_2H,
+    SIDEBAR_AUTO_HIDE_PIXELS_2V,
     SIDEBAR_AUTO_HIDE_PIXELS_3H,
+    SIDEBAR_AUTO_HIDE_PIXELS_3V,
     SIDEBAR_AUTO_HIDE_PIXELS_4,
     SIDEBAR_AUTO_HIDE_PIXELS_SINGLE,
 )
@@ -40,13 +42,15 @@ def sidebar_auto_hide_pixel_threshold(
 ) -> int:
     if pane_count == 1:
         return SIDEBAR_AUTO_HIDE_PIXELS_SINGLE
-    if pane_count == 4:
-        return SIDEBAR_AUTO_HIDE_PIXELS_4
-    if pane_count == 2 and split_layout_horizontal:
-        return SIDEBAR_AUTO_HIDE_PIXELS_2H
-    if pane_count == 3 and split_layout_horizontal:
-        return SIDEBAR_AUTO_HIDE_PIXELS_3H
-    return SIDEBAR_AUTO_HIDE_PIXELS
+    if pane_count == 2:
+        if split_layout_horizontal:
+            return SIDEBAR_AUTO_HIDE_PIXELS_2H
+        return SIDEBAR_AUTO_HIDE_PIXELS_2V
+    if pane_count == 3:
+        if split_layout_horizontal:
+            return SIDEBAR_AUTO_HIDE_PIXELS_3H
+        return SIDEBAR_AUTO_HIDE_PIXELS_3V
+    return SIDEBAR_AUTO_HIDE_PIXELS_4
 
 
 def sidebar_auto_hide_column_threshold(
@@ -55,13 +59,15 @@ def sidebar_auto_hide_column_threshold(
 ) -> int:
     if pane_count == 1:
         return SIDEBAR_AUTO_HIDE_COLUMNS_SINGLE
-    if pane_count == 4:
-        return SIDEBAR_AUTO_HIDE_COLUMNS_4
-    if pane_count == 2 and split_layout_horizontal:
-        return SIDEBAR_AUTO_HIDE_COLUMNS_2H
-    if pane_count == 3 and split_layout_horizontal:
-        return SIDEBAR_AUTO_HIDE_COLUMNS_3H
-    return SIDEBAR_AUTO_HIDE_COLUMNS
+    if pane_count == 2:
+        if split_layout_horizontal:
+            return SIDEBAR_AUTO_HIDE_COLUMNS_2H
+        return SIDEBAR_AUTO_HIDE_COLUMNS_2V
+    if pane_count == 3:
+        if split_layout_horizontal:
+            return SIDEBAR_AUTO_HIDE_COLUMNS_3H
+        return SIDEBAR_AUTO_HIDE_COLUMNS_3V
+    return SIDEBAR_AUTO_HIDE_COLUMNS_4
 
 
 def has_empty_pane(panes: list[ChatPaneState]) -> bool:

@@ -10,5 +10,17 @@
   "chat_list_render_limit": 300,
   "cache_group_members_on_open": false,
   "enable_message_reply_action": true,
-  "enable_message_plus_one_action": true
+  "enable_message_plus_one_action": true,
+  "sidebar_auto_hide_pixel_1": 800,
+  "sidebar_auto_hide_pixel_2h": 1000,
+  "sidebar_auto_hide_pixel_2v": 800,
+  "sidebar_auto_hide_pixel_3h": 1200,
+  "sidebar_auto_hide_pixel_3v": 800,
+  "sidebar_auto_hide_pixel_4": 1000,
+  "sidebar_auto_hide_column_1": 101,
+  "sidebar_auto_hide_column_2h": 126,
+  "sidebar_auto_hide_column_2v": 101,
+  "sidebar_auto_hide_column_3h": 151,
+  "sidebar_auto_hide_column_3v": 101,
+  "sidebar_auto_hide_column_4": 126
 }

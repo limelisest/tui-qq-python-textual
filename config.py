@@ -18,6 +18,18 @@ DEFAULT_CONFIG = {
     "cache_group_members_on_open": False,
     "enable_message_reply_action": True,
     "enable_message_plus_one_action": True,
+    "sidebar_auto_hide_pixel_1": 800,
+    "sidebar_auto_hide_pixel_2h": 1000,
+    "sidebar_auto_hide_pixel_2v": 800,
+    "sidebar_auto_hide_pixel_3h": 1200,
+    "sidebar_auto_hide_pixel_3v": 800,
+    "sidebar_auto_hide_pixel_4": 1000,
+    "sidebar_auto_hide_column_1": 101,
+    "sidebar_auto_hide_column_2h": 126,
+    "sidebar_auto_hide_column_2v": 101,
+    "sidebar_auto_hide_column_3h": 151,
+    "sidebar_auto_hide_column_3v": 101,
+    "sidebar_auto_hide_column_4": 126,
 }
 
 
@@ -56,3 +68,15 @@ CHAT_LIST_RENDER_LIMIT = int(APP_CONFIG["chat_list_render_limit"])
 CACHE_GROUP_MEMBERS_ON_OPEN = bool(APP_CONFIG["cache_group_members_on_open"])
 ENABLE_MESSAGE_REPLY_ACTION = bool(APP_CONFIG["enable_message_reply_action"])
 ENABLE_MESSAGE_PLUS_ONE_ACTION = bool(APP_CONFIG["enable_message_plus_one_action"])
+SIDEBAR_AUTO_HIDE_PIXEL_1 = int(APP_CONFIG["sidebar_auto_hide_pixel_1"])
+SIDEBAR_AUTO_HIDE_PIXEL_2H = int(APP_CONFIG["sidebar_auto_hide_pixel_2h"])
+SIDEBAR_AUTO_HIDE_PIXEL_2V = int(APP_CONFIG["sidebar_auto_hide_pixel_2v"])
+SIDEBAR_AUTO_HIDE_PIXEL_3H = int(APP_CONFIG["sidebar_auto_hide_pixel_3h"])
+SIDEBAR_AUTO_HIDE_PIXEL_3V = int(APP_CONFIG["sidebar_auto_hide_pixel_3v"])
+SIDEBAR_AUTO_HIDE_PIXEL_4 = int(APP_CONFIG["sidebar_auto_hide_pixel_4"])
+SIDEBAR_AUTO_HIDE_COLUMN_1 = int(APP_CONFIG["sidebar_auto_hide_column_1"])
+SIDEBAR_AUTO_HIDE_COLUMN_2H = int(APP_CONFIG["sidebar_auto_hide_column_2h"])
+SIDEBAR_AUTO_HIDE_COLUMN_2V = int(APP_CONFIG["sidebar_auto_hide_column_2v"])
+SIDEBAR_AUTO_HIDE_COLUMN_3H = int(APP_CONFIG["sidebar_auto_hide_column_3h"])
+SIDEBAR_AUTO_HIDE_COLUMN_3V = int(APP_CONFIG["sidebar_auto_hide_column_3v"])
+SIDEBAR_AUTO_HIDE_COLUMN_4 = int(APP_CONFIG["sidebar_auto_hide_column_4"])
