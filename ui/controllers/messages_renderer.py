@@ -6,9 +6,8 @@ from typing import Optional
 
 from rich.console import RenderableType
 from rich.markup import escape as rich_escape
-from rich.padding import Padding
 from rich.text import Text
-from textual.widgets import Input, Static
+from textual.widgets import Static, TextArea
 
 import config
 from models import ChatInfo, MessageData
@@ -50,10 +49,10 @@ class MessageRendererMixin:
 
     def message_input_or_none(
         self, pane: Optional[ChatPaneState] = None
-    ) -> Optional[Input]:
+    ) -> Optional[TextArea]:
         pane = pane or self._app.state.active_pane()
         try:
-            return self._pane_widget(pane, "msg_input", Input)
+            return self._pane_widget(pane, "msg_input", TextArea)
         except Exception:
             return None
 
@@ -107,7 +106,7 @@ class MessageRendererMixin:
             action_ranges=action_ranges,
         )
         if renderables.preview is not None:
-            log.write(renderables.preview)
+            log.write(renderables.preview, classes="message_preview_line")
         log.write(
             content,
             classes="message_content_line",
@@ -157,7 +156,7 @@ class MessageRendererMixin:
             not config.ENABLE_MESSAGE_PLUS_ONE_ACTION
             or not (msg.content or "").strip()
         ):
-            return Padding(content, (0, 0, 0, 2)), {}
+            return content, {}
 
         spacer = " "
         plus_one_label = "[+1]"
@@ -165,7 +164,7 @@ class MessageRendererMixin:
         plus_one_end = plus_one_start + display_width(plus_one_label)
         content.append(spacer)
         content.append(plus_one_label, style="dim")
-        return Padding(content, (0, 0, 0, 2)), {
+        return content, {
             "plus_one": (plus_one_start, plus_one_end),
         }
 

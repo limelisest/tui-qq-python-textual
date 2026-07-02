@@ -13,12 +13,13 @@ from typing import Optional
 
 from textual.containers import Vertical
 from textual.css.query import NoMatches
-from textual.widgets import Input, ListView
+from textual.widgets import Input, ListView, TextArea
 
 from models import ChatInfo
 from ui.logic import chat_logic
 from ui.navigation import compute_pane_index_in_direction
 from ui.state import ChatPaneState, same_chat
+from ui.widgets.message_text_area import MessageTextArea
 
 
 class NavigationController:
@@ -210,11 +211,11 @@ class NavigationController:
     # Input helpers
     # ------------------------------------------------------------------ #
 
-    def focused_input(self) -> Optional[Input]:
+    def focused_input(self) -> Optional[Input | TextArea]:
         focused = self._app.screen.focused
-        return focused if isinstance(focused, Input) else None
+        return focused if isinstance(focused, (Input, TextArea)) else None
 
-    def cursor_target_input(self) -> Optional[Input]:
+    def cursor_target_input(self) -> Optional[Input | TextArea]:
         focused = self.focused_input()
         if focused is not None:
             return focused
@@ -260,7 +261,7 @@ class NavigationController:
         self._app.state.navigation.layer = "pane"
         self._app.state.active_pane_uid = pane.uid
         self._app.state.navigation.top_target_pane_uid = pane.uid
-        if isinstance(focused, Input) and focused.has_class("msg_input"):
+        if isinstance(focused, (Input, TextArea)) and focused.has_class("msg_input"):
             self._app._pane_ctrl.set_input_owner_pane(
                 pane, scroll_if_auto=True
             )
@@ -472,15 +473,15 @@ class NavigationController:
             pane = self._app._active_pane()
             if pane.reply_index >= 0:
                 if (
-                    isinstance(focused, Input)
+                    isinstance(focused, (Input, TextArea))
                     and focused.has_class("msg_input")
-                    and focused.value.strip()
+                    and focused.text.strip()
                 ):
                     self._app._msg_ctrl.submit_message_input(focused)
                     return
                 if self._app._msg_ctrl.execute_selected_message_action(pane):
                     return
-            if isinstance(focused, Input) and focused.has_class("msg_input"):
+            if isinstance(focused, (Input, TextArea)) and focused.has_class("msg_input"):
                 self._app._msg_ctrl.submit_message_input(focused)
                 return
             self.action_focus_message()
@@ -499,6 +500,14 @@ class NavigationController:
                 msg_input.focus()
 
     def action_reply_previous(self) -> None:
+        focused = self._app.screen.focused
+        if isinstance(focused, MessageTextArea):
+            pane = self._app._active_pane()
+            if pane is None or pane.reply_index < 0:
+                old = focused.cursor_location
+                focused.action_cursor_up()
+                if focused.cursor_location != old:
+                    return
         nav = self._app.state.navigation
         if nav.layer == "top":
             if nav.top_target_pane_uid is None:
@@ -527,6 +536,14 @@ class NavigationController:
         )
 
     def action_reply_next(self) -> None:
+        focused = self._app.screen.focused
+        if isinstance(focused, MessageTextArea):
+            pane = self._app._active_pane()
+            if pane is None or pane.reply_index < 0:
+                old = focused.cursor_location
+                focused.action_cursor_down()
+                if focused.cursor_location != old:
+                    return
         nav = self._app.state.navigation
         if nav.layer == "top":
             if nav.top_target_pane_uid is None:

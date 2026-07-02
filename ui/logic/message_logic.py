@@ -23,7 +23,6 @@ from typing import TYPE_CHECKING, Callable, List, Optional, Sequence, Tuple
 
 from rich.console import RenderableType
 from rich.markup import escape as rich_escape
-from rich.padding import Padding
 from rich.text import Text
 
 from models import ChatInfo, MessageData
@@ -343,12 +342,9 @@ def build_message_renderables(
 
     preview: Optional[RenderableType] = None
     if reply_preview:
-        preview = Padding(
-            Text.from_markup(f"[dim]{rich_escape(reply_preview)}[/]"),
-            (0, 0, 0, 2),
-        )
+        preview = Text.from_markup(f"[dim]{rich_escape(reply_preview)}[/]")
 
-    content_renderable = Padding(Text.from_markup(content), (0, 0, 0, 2))
+    content_renderable = Text.from_markup(content)
     return MessageRenderables(header=header, preview=preview, content=content_renderable)
 
 

@@ -8,10 +8,11 @@ from __future__ import annotations
 from typing import Optional
 
 from textual.containers import Horizontal, Vertical
-from textual.widgets import Button, Input, Static
+from textual.widgets import Button, Static
 
 from ui.state import ChatPaneState, pane_dom_id, pane_has_active_border, pane_title_text
 from ui.widgets import MessageLog
+from ui.widgets.message_text_area import MessageTextArea
 
 
 def build_pane_container(
@@ -38,8 +39,8 @@ def build_pane_container(
         classes="msg_log",
         max_lines=5000,
     )
-    msg_input = Input(
-        placeholder="选择会话后输入消息，Enter 发送",
+    msg_input = MessageTextArea(
+        placeholder="输入消息，Enter 发送",
         id=pane_dom_id(pane, "msg_input"),
         classes="msg_input",
     )

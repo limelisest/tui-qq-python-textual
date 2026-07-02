@@ -19,7 +19,9 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
 from textual.css.query import NoMatches
-from textual.widgets import Button, Input, ListView, Static
+from textual.widgets import Button, Input, ListView, Static, TextArea
+
+from ui.widgets.message_text_area import MessageTextArea
 
 import config
 from models import ChatInfo, MessageData
@@ -38,7 +40,7 @@ from ui.sidebar import is_sidebar_narrow
 from ui.state import AppState, ChatPaneState
 from ui.styles import APP_CSS
 
-from ui.text_utils import ellipsize
+from ui.text_utils import display_width, ellipsize
 from ui.widgets.chat_pane import build_pane_container
 
 
@@ -246,7 +248,7 @@ class QQChatApp(App):
     def _focus_chat_list_area(self) -> None:
         self._nav_ctrl.focus_chat_list_area()
 
-    def _focused_input(self) -> Optional[Input]:
+    def _focused_input(self) -> Optional[Input | TextArea]:
         return self._nav_ctrl.focused_input()
 
     def _activate_pane(
@@ -339,6 +341,7 @@ class QQChatApp(App):
     def on_resize(self, event: events.Resize) -> None:
         self._apply_sidebar_auto_visibility(event.size, event.pixel_size)
         self._scroll_auto_panes()
+        self._recalc_input_heights()
 
     # ------------------------------------------------------------------ #
     # Threads (worker entry points; all network stays off the main thread)
@@ -655,14 +658,37 @@ class QQChatApp(App):
             self._hide_all_message_inputs()
         self._chat_list_ctrl.render_chat_list()
 
-    @on(Input.Changed, ".msg_input")
-    def _on_message_input_changed(self, event: Input.Changed) -> None:
-        pane = self._pane_from_widget(event.input)
+    @on(TextArea.Changed, ".msg_input")
+    def _on_message_input_changed(self, event: TextArea.Changed) -> None:
+        pane = self._pane_from_widget(event.text_area)
         if pane is None:
             return
-        if event.input.value:
+        if event.text_area.text:
             self.state.input_owner_pane_uid = pane.uid
         self._msg_ctrl.refresh_message_input_visibility(pane)
+        self._adjust_msg_input_height(event.text_area)
+
+    def _adjust_msg_input_height(self, text_area: TextArea) -> None:
+        if not text_area.text:
+            text_area.styles.height = 3
+            return
+        try:
+            area_width = text_area.region.width
+        except Exception:
+            area_width = 30
+        content_width = max(area_width - 2, 4)
+        visual_lines = 0
+        for line in text_area.text.split("\n"):
+            line_width = display_width(line)
+            visual_lines += max(1, (line_width + content_width - 1) // content_width)
+        capped = min(max(visual_lines, 1), 3)
+        text_area.styles.height = capped + 2
+
+    def _recalc_input_heights(self) -> None:
+        for pane in self.state.panes:
+            ta = self._msg_ctrl.message_input_or_none(pane)
+            if ta is not None and ta.is_attached:
+                self._adjust_msg_input_height(ta)
 
     @on(Input.Submitted, "#search")
     def _on_search_submitted(self, event: Input.Submitted) -> None:
@@ -729,9 +755,9 @@ class QQChatApp(App):
     # Sending messages
     # ------------------------------------------------------------------ #
 
-    @on(Input.Submitted, ".msg_input")
-    def _on_message_submitted(self, event: Input.Submitted) -> None:
-        self._msg_ctrl.submit_message_input(event.input)
+    @on(MessageTextArea.Submitted)
+    def _on_message_submitted(self, event: MessageTextArea.Submitted) -> None:
+        self._msg_ctrl.submit_message_input(event.text_area)
 
     # ------------------------------------------------------------------ #
     # Actions (bound keys) - thin proxies to NavigationController

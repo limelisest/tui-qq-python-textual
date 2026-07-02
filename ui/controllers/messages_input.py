@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Optional
 
 from textual.containers import Horizontal
-from textual.widgets import Input
+from textual.widgets import TextArea
 
 from ui.logic import message_logic
 from ui.state import ChatPaneState
@@ -41,19 +41,20 @@ class MessageInputMixin:
         msg_input = self.message_input_or_none(pane)
         if msg_input is None or msg_input.disabled:
             return
-        msg_input.cursor_position = len(msg_input.value)
-        msg_input.insert_text_at_cursor(text)
+        msg_input.text += text
+        last_line_idx = len(msg_input.document.lines) - 1
+        msg_input.move_cursor((last_line_idx, len(msg_input.document.lines[last_line_idx])))
         self._app.state.input_owner_pane_uid = pane.uid
         self.refresh_message_input_visibility(pane)
         msg_input.focus()
 
-    def submit_message_input(self, input_widget: Input) -> None:
+    def submit_message_input(self, input_widget: TextArea) -> None:
         app = self._app
         pane = app._pane_from_widget(input_widget)
         if pane is None:
             return
         app._activate_pane(pane, focus_input=True)
-        text = input_widget.value.strip()
+        text = input_widget.text.strip()
         input_widget.clear()
         self.refresh_message_input_visibility(pane)
         if not text:

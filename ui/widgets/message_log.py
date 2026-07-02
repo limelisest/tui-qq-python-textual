@@ -56,6 +56,7 @@ class MessageLog(VerticalScroll):
         if classes:
             line_classes = f"{line_classes} {classes}"
         line = Static(line_content, classes=line_classes)
+        line.ALLOW_SELECT = True
         line.message_index = message_index
         line.message_action_ranges = action_ranges or {}
         self._line_widgets.append(line)

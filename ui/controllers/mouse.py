@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Optional
 
 from textual import events
-from textual.widgets import Input, ListItem, ListView
+from textual.widgets import Input, ListItem, ListView, TextArea
 
 from models import ChatInfo
 from ui.clipboard import get_system_clipboard, set_system_clipboard
@@ -117,14 +117,14 @@ class MouseController:
 
     def input_from_mouse_event(
         self, event: events.MouseEvent
-    ) -> Optional[Input]:
+    ) -> Optional[Input | TextArea]:
         try:
             widget, _ = self._app.screen.get_widget_at(event.screen_x, event.screen_y)
         except Exception:
             return None
         node = widget
         while node is not None:
-            if isinstance(node, Input) and not node.disabled:
+            if isinstance(node, (Input, TextArea)) and not node.disabled:
                 return node
             node = getattr(node, "parent", None)
         return None
@@ -146,20 +146,16 @@ class MouseController:
         self._app.copy_to_clipboard(text)
         set_system_clipboard(text)
 
-    def paste_clipboard_to_input(self, target: Input) -> None:
+    def paste_clipboard_to_input(self, target: TextArea) -> None:
         text = get_system_clipboard() or self._app.clipboard
         if not text:
             self._app._show_toast("剪贴板为空")
             return
-        line = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")[0]
-        if not line:
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+        if not text:
             return
         target.focus()
-        selection = target.selection
-        if selection.is_empty:
-            target.insert_text_at_cursor(line)
-        else:
-            target.replace(line, *selection)
+        target.insert(text)
 
     def clear_message_selection_unless_action(self, event: events.MouseEvent) -> None:
         if self.message_action_from_mouse_event(event) is not None:

@@ -217,6 +217,18 @@ Screen {
     padding: 0 0;
 }
 
+.message_header_line {
+    padding: 0 0;
+}
+
+.message_content_line {
+    padding: 0 0 0 2;
+}
+
+.message_preview_line {
+    padding: 0 0 0 2;
+}
+
 .message_log_line_selected {
     background: $primary;
     color: $text;
@@ -230,7 +242,7 @@ Screen {
 }
 
 .input_row {
-    height: 3;
+    height: auto;
     margin: 0 0;
 }
 
